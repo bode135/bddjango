@@ -1,5 +1,5 @@
 # bddjango
-> django常用开发工具
+> drf+postgresql环境下总结的常用开发工具
 
 ## 安装  
 
@@ -36,6 +36,5 @@ pip install bddjango
   - 导出数据界面
 
 ## 备注
-- admin管理的模型主键必须为`id`, 不然会出错.
 
 - https://realpython.com/pypi-publish-python-package/
