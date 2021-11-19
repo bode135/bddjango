@@ -44,28 +44,28 @@ class SingleConditionSearch:
         """
         search_field, search_keywords, accuracy = self.search_field, self.search_keywords, self.accuracy
 
-        # assert self.model is not None, '请指定model类型!'
-        #
-        # if isinstance(self.model, QuerySet):
-        #     assert self.model.count(), '请指定检索的queryset类型!'
-        #     model = self.model[0]
-        # else:
-        #     model = self.model
+        assert self.model is not None, '请指定model类型!'
 
-        # print(accuracy)
-        # if hasattr(model, '_meta'):
-        #     if model._meta.get_field(search_field).get_internal_type() in ('TextField', 'CharField'):
-        #         if accuracy:
-        #             cmd = f'self.qs = Q({search_field}="{search_keywords}")'
-        #         else:
-        #             cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
-        #     else:
-        #         cmd = f'self.qs = Q({search_field}={search_keywords})'
-        # else:
-        #     if accuracy:
-        #         cmd = f'self.qs = Q({search_field}="{search_keywords}")'
-        #     else:
-        #         cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
+        if isinstance(self.model, QuerySet):
+            assert self.model.count(), '请指定检索的queryset类型!'
+            model = self.model[0]
+        else:
+            model = self.model
+
+        print(accuracy)
+        if hasattr(model, '_meta'):
+            if model._meta.get_field(search_field).get_internal_type() in ('TextField', 'CharField'):
+                if accuracy:
+                    cmd = f'self.qs = Q({search_field}="{search_keywords}")'
+                else:
+                    cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
+            else:
+                cmd = f'self.qs = Q({search_field}={search_keywords})'
+        else:
+            if accuracy:
+                cmd = f'self.qs = Q({search_field}="{search_keywords}")'
+            else:
+                cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
 
         def get_suffix_by_accuracy(accuracy):
             """

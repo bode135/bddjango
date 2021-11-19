@@ -24,6 +24,10 @@ from .. import reset_db_sequence
 
 # --- 初始化环境 ---
 from .admin_env_init import CHANGE_LIST_HTML_PATH
+from tqdm import tqdm
+from pandas._libs.tslibs.timestamps import Timestamp
+from bddjango import get_base_model, get_model_max_id_in_db, old_get_model_max_id_in_db
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 
 
 class IDAdmin(admin.ModelAdmin):
@@ -38,14 +42,21 @@ class IDAdmin(admin.ModelAdmin):
         参数change分辨保存or修改.
         若为保存, 则model的id值自动更新为数据库中最大id+1.
         """
-        if change is False:
-            # meta = obj._meta
-            # obj.id = get_model_max_id_in_db(model=None, meta=meta)
-            obj.id = get_model_max_id_in_db(model=obj)
-        obj.save()
+        # if change is False:
+        #     # meta = obj._meta
+        #     # obj.id = get_model_max_id_in_db(model=None, meta=meta)
+        #     obj.id = get_model_max_id_in_db(model=obj)
+        # obj.save()
 
+        try:
+            obj.save()
+        except Exception as e:
+            msg = f'可能为pgsql的id引起的错误:' + str(e)
 
-from pandas._libs.tslibs.timestamps import Timestamp
+            print(msg)
+            reset_db_sequence(obj)
+            # obj.id = get_model_max_id_in_db(get_base_model(obj))
+            obj.save()
 
 
 # --- 处理df中的特殊格式
@@ -115,6 +126,7 @@ def conv_date_time_field_str_format(ts):
             ts = None
     return ts
 
+
 def format_time_column(df1, column_name):
     # 多行一起处理
     ts_ls = df1[column_name]
@@ -152,6 +164,7 @@ class BulkDeleteMixin:
 
     bulk_delete.short_description = "批量删除"
     bulk_delete.icon = 'el-icon-delete'
+    bulk_delete.confirm = "确定要批量删除选中的数据么?"
 
 
 class ExportExcelMixin:
@@ -175,11 +188,18 @@ class ExportExcelMixin:
         if self.export_asc:
             if queryset.count() and hasattr(queryset[0], 'id'):
                 queryset = queryset.order_by('id')
-
         ws.append(verbose_names)
+
+        total = queryset.count()
+        tq = tqdm(total=total)
         for obj in queryset:
+            tq.update(1)
             data = [f'{getattr(obj, field)}' for field in field_names]
-            ws.append(data)
+            try:
+                ws.append(data)
+            except Exception as e:
+                print(data)
+                raise e
         wb.save(response)
         return response
 
@@ -279,7 +299,11 @@ class ImportAdmin(IDAdmin):
                 df1 = df.copy()
                 df1.columns = title_ls
 
+                # 这里有问题, 服务器带宽太小的话, 一次性bulk_update会造成tcp拥塞, 从而导致服务器瘫痪!
+                # 必须仿照navicat的处理方式, 设置batch_size, 小批量处理数据.
+                # 同时出现问题, 如何让用户看到进度条? 用异步的方式, 或者websocket?
                 md_ls = []
+                my_tqdm = tqdm(total=df_rows)
                 for index, row in df1.iterrows():
                     content_ls = row.values.tolist()
 
@@ -297,14 +321,14 @@ class ImportAdmin(IDAdmin):
                             # print(i, title_i, content_ls[i])
                             if attr_field_name == 'DateTimeField':
                                 res = conv_date_time_field_str_format(ts=content_ls[i])
-                                if res is None:
-                                    print(content_ls[i])
+                                # if res is None:
+                                #     print(content_ls[i])
                                 content_ls[i] = res
                             else:
                                 ts = content_ls[i]
                                 res = conv_date_field_str_format(ts=ts)
-                                if res is None:
-                                    print(content_ls[i])
+                                # if res is None:
+                                #     print(content_ls[i])
                                 content_ls[i] = res
 
                     dc = dict(zip(title_ls, content_ls))
@@ -312,13 +336,14 @@ class ImportAdmin(IDAdmin):
                     curr_id += 1
                     md = self.model(**dc)
                     md_ls.append(md)
+                    my_tqdm.update(1)
                     # self.model.objects.create(**dc)
-                # from bddjango.django import get_model_base
-                # get_model_base(self.model)
-                self.model.objects.bulk_create(md_ls)
+
+                self.model.objects.bulk_create(md_ls,batch_size=100)
                 reset_db_sequence(self.model)
                 self.message_user(request, f"{f_format}文件导入成功! 一共导入{df_rows}条数据, 耗时: {t_import.now(1)}秒.")
                 self.remove_temp_file(tempdir)
+
                 return redirect("..")
         except Exception as e:
             self.message_user(request, f"第 {index+1} 条数据导入失败!</br>错误信息：&nbsp;" + str(e), level=messages.ERROR)
@@ -327,6 +352,21 @@ class ImportAdmin(IDAdmin):
         form = CsvImportForm()
         payload = {"form": form}
         return render(request, "admin/csv_form.html", payload)
+
+    def bulk_save(self, request, md_ls, f_format, df_rows, t_import, tempdir, batch_size=100):
+        def _bulk_save():
+            self.model.objects.bulk_create(md_ls, batch_size=batch_size)
+            reset_db_sequence(self.model)
+            self.message_user(request, f"{f_format}文件导入成功! 一共导入{df_rows}条数据, 耗时: {t_import.now(1)}秒.")
+            self.remove_temp_file(tempdir)
+
+        if df_rows < 3000:
+            return _bulk_save()
+        else:
+            print('~~~ 多线程_bulk_save')
+            self.message_user(request, f"{f_format}文件的{df_rows}条数据格式正确, 正在后台导入中, 请稍后查看...")
+            t1 = threading.Thread(target=_bulk_save, args=())
+            t1.start()
 
     def export_all_csv(self, request):
         # self.message_user(request, "成功导出全部数据为csv文件")
@@ -523,5 +563,42 @@ def list_display_admin_register(cls):
 
 
 class BaseAdmin(ListDisplayAdmin):
-    pass
+    def changelist_view(self, request, extra_context=None):
+        """
+        这里想跳过"必须选择一个数据"的确认框,
+        但django原生admin可以, 而simpleui无法实现,
+        经过改进后, 以"fc_"开头的方法将强制运行
 
+        - https://stackoverflow.com/questions/4500924/django-admin-action-without-selecting-objects
+        """
+        MyModel = self.model
+
+        # 强制运行以"fc_"开头的action
+        if 'action' in request.POST and request.POST['action'].startswith('fc_'):
+            if not request.POST.getlist(ACTION_CHECKBOX_NAME):
+                post = request.POST.copy()
+                for u in MyModel.objects.all():
+                    post.update({ACTION_CHECKBOX_NAME: str(u.id)})
+                request._set_post(post)
+        return super().changelist_view(request, extra_context)
+
+
+class PureAdmin(admin.ModelAdmin):
+    def changelist_view(self, request, extra_context=None):
+        """
+        这里想跳过"必须选择一个数据"的确认框,
+        但django原生admin可以, 而simpleui无法实现,
+        经过改进后, 以"fc_"开头的方法将强制运行
+
+        - https://stackoverflow.com/questions/4500924/django-admin-action-without-selecting-objects
+        """
+        MyModel = self.model
+
+        # 强制运行以"fc_"开头的action
+        if 'action' in request.POST and request.POST['action'].startswith('fc_'):
+            if not request.POST.getlist(ACTION_CHECKBOX_NAME):
+                post = request.POST.copy()
+                for u in MyModel.objects.all():
+                    post.update({ACTION_CHECKBOX_NAME: str(u.id)})
+                request._set_post(post)
+        return super().changelist_view(request, extra_context)

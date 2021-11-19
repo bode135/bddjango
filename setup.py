@@ -27,6 +27,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.6',
-    install_requires=['pandas', 'django', 'openpyxl', 'xlrd==1.2.0'],      # 依赖模块
+    install_requires=['pandas', 'django', 'openpyxl', 'xlrd==1.2.0', 'bdtime', 'tqdm'],      # 依赖模块
     include_package_data=True,
 )

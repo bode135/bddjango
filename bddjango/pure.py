@@ -6,7 +6,7 @@ import os
 
 
 def version():
-    return '1.3.6'
+    return '1.3.8'
 
 
 def add_status_and_msg(dc_ls, status=200, msg=None):

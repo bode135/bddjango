@@ -169,11 +169,13 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         return APIResponse(ret, status=status, msg=msg)
 
     def get_serializer_class(self):
-        if self.method:
-            if self.method == 'retrieve' and self.retrieve_serializer_class:
-                self.serializer_class = self.retrieve_serializer_class
-            if self.method == 'list' and self.list_serializer_class:
-                self.serializer_class = self.list_serializer_class
+        if self.method == 'retrieve':
+            self.serializer_class = self.retrieve_serializer_class or self.serializer_class
+        elif self.method == 'list':
+            self.serializer_class = self.list_serializer_class or self.serializer_class
+        else:
+            self.serializer_class = self.retrieve_serializer_class or self.serializer_class or self.list_serializer_class
+
         assert self.serializer_class, '属性serializer_class不能为空!'
         return self.serializer_class
 
@@ -240,22 +242,12 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         """
         query_dc = self.request.query_params
 
-        # order_type = query_dc.getlist('order_type')
-        # if order_type:
-        #     order_type_ls = order_type
-        #     try:
-        #         self.queryset = self.queryset.order_by(order_type)
-        #     except ValueError as e:
-        #         msg = f'参数order_type指定的排序字段[{order_type}]取值错误! 更多信息: {str(e)}'
-        #         raise ValueError(msg)
-
         order_type_ls = query_dc.getlist('order_type_ls') if query_dc.getlist('order_type_ls') else self.order_type_ls
         if not order_type_ls:
             # 旧版本可能用的order_type, 尝试赋值
             order_type = query_dc.getlist('order_type')
             if order_type:
                 order_type_ls = order_type
-
         if order_type_ls:
             try:
                 self.queryset = order_by_order_type_ls(self.queryset, order_type_ls)
@@ -264,9 +256,10 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                 raise ValueError(msg)
 
         # distinct操作
-        distinct_field_ls = self.request.query_params.get('distinct_field_ls') if self.request.query_params.get('distinct_field_ls') else self.distinct_field_ls
+        distinct_field_ls = self.request.query_params.getlist('distinct_field_ls') if self.request.query_params.getlist('distinct_field_ls') else self.distinct_field_ls
         if distinct_field_ls:
-            self.queryset = self.queryset.distinct(distinct_field_ls)
+            assert isinstance(distinct_field_ls, (list, tuple)), 'distinct_field_ls因为list或者tuple!'
+            self.queryset = self.queryset.distinct(*distinct_field_ls)
 
         return self.queryset
 
@@ -455,8 +448,15 @@ def order_qs_ls_by_id(qs_ls, sort_by='id'):
 
 
 def order_by_order_type_ls(queryset, order_type_ls) -> QuerySet:
-    if order_type_ls is None or isinstance(order_type_ls, str):
-        return order_by_order_type(queryset, order_type_ls)
+    """
+    根据传入的order_type_ls参数, 对queryset进行排序.
+
+    若order_type_ls包含__None__, 则清空queryset的排序规则.
+    """
+    if '__None__' in order_type_ls:
+        ret = queryset.order_by()
+    elif order_type_ls is None or isinstance(order_type_ls, str):
+        ret = order_by_order_type(queryset, order_type_ls)
     else:
         ls = []
         for order_type in order_type_ls:

@@ -46,7 +46,6 @@ class MyUpdateModelMixin(UpdateModelMixin):
             instance._prefetched_objects_cache = {}
 
         return APIResponse(serializer.data, status=200, msg='ok, 更新成功.')
-        # return Response(serializer.data)
 
 
 class MyDestroyModelMixin:

@@ -8,14 +8,24 @@ from ..pure import version
 app_ls: list = settings.INSTALLED_APPS
 BD_USE_SIMPLEUI = True if 'simpleui' in app_ls or 'simpleuipro'in app_ls else False
 CHANGE_LIST_HTML_PATH = os.path.join('entities', 'simpleui_change_list.html') if BD_USE_SIMPLEUI else os.path.join('entities', 'base_change_list.html')
-if not os.path.exists(CHANGE_LIST_HTML_PATH):
-    """
-    没有dir, 就用bddjango默认的templates模板
-    """
-    BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-    TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
-    CHANGE_LIST_HTML_PATH = os.path.join(TEMPLATES_DIR, CHANGE_LIST_HTML_PATH)
-    settings.TEMPLATES[0]['DIRS'].append(TEMPLATES_DIR)
+
+# --- 加入django的templates路径
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
+settings.TEMPLATES[0]['DIRS'].append(TEMPLATES_DIR)
+
+CHANGE_LIST_HTML_PATH = os.path.join(TEMPLATES_DIR, CHANGE_LIST_HTML_PATH)
+
+# --- 如果使用的是simpleui, 则需要修复一些bug
+# https://github.com/newpanjing/simpleui/issues/405
+if BD_USE_SIMPLEUI and not os.path.exists(os.path.join('templates', 'admin', 'actions.html')):
+    from django.contrib.admin.templatetags.admin_list import admin_actions, InclusionAdminNode, register
+    template_name = 'simpleui_admin_actions.html'
+    @register.tag(name='simpleui_admin_actions')
+    def simpleui_admin_actions(parser, token):
+        return InclusionAdminNode(parser, token, func=admin_actions, template_name=template_name)
+
+    CHANGE_LIST_HTML_PATH = os.path.join(TEMPLATES_DIR, 'entities', 'simpleui_change_list_actions.html')
 
 
 # --- 初始化环境 --- 已经不用了 -------------------
@@ -24,7 +34,6 @@ def create_dir_if_not_exist(dirpath: str):
         os.mkdir(dirpath)
         return False
     return True
-
 
 def run():
     src1 = os.path.join(os.path.dirname(__file__), 'templates', 'admin', 'csv_form.html')
