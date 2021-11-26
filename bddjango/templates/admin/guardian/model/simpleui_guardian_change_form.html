@@ -1,0 +1,52 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+{% url opts|admin_urlname:'permissions' original.pk|admin_urlquote as history_url %}
+<li><a href="{% add_preserved_filters history_url %}" class="permissionslink"><i class="fas fa-history"></i>{% trans "Object permissions" %}</a></li>
+<button type="button" class="el-button asdf el-button--small el-button--default" onclick="myFunction()"><!----><i class="fas fa-history"></i><span>历史asdfsadf
+            </span></button>
+
+    {{ block.super }}
+{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+    <script type="text/javascript">
+        function myFunction()
+        {
+            console.log("---------- simpleui_guardian_change_form");
+            console.log("---" + $(".permissionslink").click() + $(".permissionslink").text());
+
+             var mo2g = '<span id="mo2g"></span>';
+            //给A标签中的文字添加一个能被jQuery捕获的元素
+            $('.permissionslink').append(mo2g);
+            //模拟点击A标签中的文字
+            $('#mo2g').click();
+
+        }
+        {#myFunction();#}
+    </script>
+
+    <style type="text/css">
+        .permissionslink {
+            display: none!important;
+            {#padding: 8px 10px!important;#}
+            {#font-size: 12px!important;#}
+            {#width:100px;height:20px;#}
+            {#border-radius: 3px!important;#}
+            {#background: white!important;#}
+            {#border: 1px solid #DCDFE6!important;#}
+            {#color: black!important;#}
+            {#-webkit-appearance: none!important;#}
+            {#text-align: center!important;#}
+            {#-webkit-box-sizing: border-box!important;#}
+            {#box-sizing: border-box!important;#}
+            {#outline: 0!important;#}
+            {#margin: 0!important;#}
+            {#-webkit-transition: .1s!important;#}
+            {#transition: .1s!important;#}
+            {#font-weight: 500!important;#}
+        }
+    </style>
+{% endblock %}

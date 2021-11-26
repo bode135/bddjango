@@ -1,0 +1,57 @@
+{% extends 'admin/base.html' %}
+
+
+{# --- 提交表单格式 --- #}
+
+
+{% block content %}
+    <div>
+        <div >
+            <form method="post" action="." enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="file" name="csv_file" class="button"  style="font-size: 13px;border: 1px solid #ccc;
+                    border-radius: 4px;
+                      background: #fff;
+                      color: #333;"/>
+            <input type="submit" class="button"  value="上传" style="font-size: 13px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background: #fff;
+                box-shadow: 0 -15px 20px -10px rgb(0 0 0 / 15%) inset;
+                cursor: pointer;
+                height: 24px;
+                line-height: 1;
+                padding: 4px 8px;
+                margin: 0;
+                color: #333;"/>
+            </form>
+
+            <br>
+        </div>
+    </div>
+
+    <div>
+
+        <button
+
+                style="font-size: 13px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background: #fff;
+                box-shadow: 0 -15px 20px -10px rgb(0 0 0 / 15%) inset;
+                cursor: pointer;
+                height: 24px;
+                line-height: 1;
+                padding: 4px 8px;
+                margin: 0;
+                color: #333;"
+
+            onclick="history.go(-1)">
+            <&nbsp;&nbsp;返回
+        </button>
+    </div>
+    </div>
+{% endblock %}
+
+
+
