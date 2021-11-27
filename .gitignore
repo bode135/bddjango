@@ -138,3 +138,10 @@ dmypy.json
 /mytests/
 # /shells/
 
+# some shells have sensitive info
+autoUploadPypi.sh
+cdmysource.sh
+cdmydocker.sh
+
+
+
