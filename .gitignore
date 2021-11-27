@@ -139,7 +139,5 @@ dmypy.json
 # /shells/
 
 # some shells have sensitive info
-myexpectupload.sh
-cdmysource.sh
 cdmydocker.sh
-
+authinfo.*
