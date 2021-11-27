@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-: git提交修改的脚本
+# git提交修改的脚本
 
 if [ $# == 0 ];then
     echo "没有带参数";
@@ -10,9 +10,13 @@ else
 fi
 
 
+# --- args
+branch=master
+
+# --- commands
 git add .
 git commit -m "$commit_name"
-git push -u origin bode
+git push -u origin $branch
 
 echo "\n提交说明为: $commit_name\n"
 
