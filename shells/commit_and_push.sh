@@ -20,7 +20,4 @@ git push -u origin $branch
 
 echo "\n提交说明为: $commit_name\n"
 
-echo "Press enter to continue..."
-read continue
-echo "Your continue is $continue"
-echo
+
