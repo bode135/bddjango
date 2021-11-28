@@ -10,8 +10,9 @@ echo "--- passwd: $passwd"
 sleep 1.5
 
 # git更新, 删除旧文件, 编译新文件, expect自动上传pypi
+echo -e "-----------------------------------------------"
 git pull
-echo -e "\n\n-------- git: git pull successful.\n\n-" && sleep 2
+echo -e "\n\n-------- git: git pull successful.\n\n" && sleep 2
 
 rm -rf build dist
 python setup.py sdist bdist_wheel
