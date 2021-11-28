@@ -7,8 +7,12 @@ dirname = 'bddjango'
 version = bddjango.version()
 
 
-with open("Readme.md", "r", encoding='utf-8') as fh:
-    long_description = fh.read()
+# with open("Readme.md", "r", encoding='utf-8') as fh:
+#     long_description = fh.read()
+
+
+from m2r import parse_from_file
+long_description = parse_from_file('Readme.md')
 
 
 setuptools.setup(
