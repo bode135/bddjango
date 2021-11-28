@@ -1,6 +1,7 @@
 import os
 import setuptools
 import bddjango
+from m2r import parse_from_file
 
 
 dirname = 'bddjango'
@@ -9,10 +10,7 @@ version = bddjango.version()
 
 # with open("Readme.md", "r", encoding='utf-8') as fh:
 #     long_description = fh.read()
-
-
-from m2r import parse_from_file
-long_description = parse_from_file('Readme.md')
+long_description = parse_from_file('Readme.md')     # .markdown必须转换为.rst, 否则有可能报错
 
 
 setuptools.setup(
