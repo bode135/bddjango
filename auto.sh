@@ -8,7 +8,8 @@ source authinfo.sh
 echo $username
 echo $passwd
 
-# 删除旧文件, 编译新文件, expect自动上传pypi
+# git更新, 删除旧文件, 编译新文件, expect自动上传pypi
+git pull
 rm -rf build dist
 python setup.py sdist bdist_wheel
 expect myexpectupload.sh $username $passwd
