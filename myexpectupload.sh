@@ -13,7 +13,7 @@ set timeout 5
 # 自动上传pypi
 spawn twine upload dist/*
 expect "Enter your username:" {
-    send $username\n"
+    send "$username\n"
 }
 expect "password" {
     send "$password\n"
