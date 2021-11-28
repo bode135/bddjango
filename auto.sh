@@ -15,7 +15,7 @@ echo -e "\n\n-------- git: git pull successful.\n\n-" && sleep 2
 
 rm -rf build dist
 python setup.py sdist bdist_wheel
-echo -e "\n\n-------- build: build successful.\n\n-" && sleep 2
+echo -e "\n\n-------- build: build successful.\n\n" && sleep 2
 
 expect myexpectupload.sh $username $passwd
 echo -e "\n-------- expect: end auto submit." && sleep 2
