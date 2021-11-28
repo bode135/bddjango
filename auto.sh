@@ -12,7 +12,7 @@ echo $passwd
 git pull
 rm -rf build dist
 python setup.py sdist bdist_wheel
-echo "--- expect: end auto build." && sleep 1
+echo "\n\n--- expect: end auto build.\n" && sleep 1
 
 expect myexpectupload.sh $username $passwd
-echo "--- expect: end auto submit." && sleep 1
+echo "\n\n--- expect: end auto submit.\n" && sleep 1
