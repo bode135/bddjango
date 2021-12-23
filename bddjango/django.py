@@ -23,12 +23,58 @@ from warnings import warn
 from django.core.management.color import no_style
 from django.db import connection
 
-
+from rest_framework.renderers import JSONRenderer
 from django.forms import model_to_dict
 from django.db.models import QuerySet
 from rest_framework.mixins import CreateModelMixin, UpdateModelMixin, DestroyModelMixin
 from rest_framework import status
 from django.db.models import Model
+from rest_framework.exceptions import APIException
+from rest_framework.exceptions import ErrorDetail
+import re
+from django.contrib.contenttypes.models import ContentType
+import json
+from rest_framework import serializers as s
+from django.http.request import QueryDict
+from .auth import get_my_api_error, my_api_assert_function
+
+
+def get_list(query_dc, key):
+    if isinstance(query_dc, QueryDict):
+        ret = query_dc.getlist(key)
+    elif isinstance(query_dc, dict):
+        ret = query_dc.get(key)
+    else:
+        raise TypeError('query_dc类型不明!')
+    return ret
+
+
+def get_base_serializer(base_model, base_fields='__all__'):
+    """
+    生成一个基础序列化器
+
+    :param base_model: queryset或者base_model
+    :param base_fields: 字段
+    :return:
+    """
+    base_model = get_base_model(base_model)
+
+    class BaseSerializer(s.ModelSerializer):
+        class Meta:
+            model = base_model
+            fields = base_fields
+    base_serializer = BaseSerializer
+    return base_serializer
+
+
+def judge_is_obj_level_of_request(request):
+    """
+    判断本次访问是否为obj对象级, 否则就是model模型级
+    """
+    if 'pk' in request._request.resolver_match.kwargs:
+        return True
+    else:
+        return False
 
 
 def conv_queryset_ls_to_serialzer_ls(qs_ls: list):
@@ -62,6 +108,7 @@ def get_field_type_in_db(model, field_name):
 
 
 def convert_db_field_type_to_python_type(tp):
+    tp = re.sub(r'\(.*\)', '', tp)      # 删除括号内的内容, 如"CharField(source='more_group.explain') "
     if tp in ['TextField', 'CharField', 'DateField', 'FileField', 'DateTimeField']:
         field_type = 'str'
     elif tp in ['IntegerField', 'AutoField', 'BigAutoField']:
@@ -70,6 +117,9 @@ def convert_db_field_type_to_python_type(tp):
         field_type = 'float'
     elif tp == 'BooleanField':
         field_type = 'bool'
+    elif '=' in tp:
+        # 类, 一般返回一个dc_ls类型
+        field_type = 'list'
     else:
         field_type = tp
     return field_type
@@ -92,7 +142,7 @@ def reset_db_sequence(model):
     cursor.close()
 
 
-def APIResponse(ret, status=200, msg=None):
+def APIResponse(ret=None, status=200, msg=None):
     if isinstance(ret, Response):
         ret = ret.data
     ret = pure.add_status_and_msg(ret, status=status, msg=msg)
@@ -127,6 +177,32 @@ class Pagination(PageNumberPagination):
     max_page_size = int(PAGINATION_SETTINGS.get('max_page_size'))
 
 
+class StateMsgResultJSONRenderer(JSONRenderer):
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if 'status' not in data and 'msg' not in data:
+            if 'detail' in data:
+                e = data.pop('detail')
+
+                msg = str(e)
+                if data:
+                    msg += str(data)
+
+                if isinstance(e, ErrorDetail) and e.code == 'permission_denied':
+                    status = 403
+                else:
+                    print('! ************ 莫名返回格式 StateMsgResultJSONRenderer **************')
+                    status = 404
+                data = {
+                    'status': status,
+                    'msg': msg,
+                    'result': [],
+                }
+            else:
+                pass
+        return super(StateMsgResultJSONRenderer, self).render(data, accepted_media_type, renderer_context)
+
+
 class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     """
     * API: BaseModel的ListView和RetrieveView接口
@@ -137,19 +213,30 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         - Retrieve:
             GET /api/index/BaseList/5/
     """
+    renderer_classes = (StateMsgResultJSONRenderer,)
 
     pagination_class = Pagination
-    filter_fields = []      # 精确检索的过滤字段, 如果过滤条件复杂的话, 建议重写
+
+    filter_fields = []       # ['__all__']过滤所有. 精确检索的过滤字段, 如果过滤条件复杂的话, 建议重写
+
     order_type_ls = []
     distinct_field_ls = []
 
     serializer_class = None
+    auto_generate_serializer_class = False
+    base_fields = '__all__'     # 当auto_generate_serializer_class为True时, 将自动生成序列化器, 然后根据base_fields返回字段
+
     retrieve_serializer_class = None       # retrieve对应的serializer_class
     list_serializer_class = None       # list对应的serializer_class
-    retrieve_filter_field = None
+
+    retrieve_filter_field = None        # 详情页的查询字段名, 默认为 {{url}}/app/view/pk , 无需变动.
 
     method = None       # 中间变量, 记录请求是什么类型, list/retrieve等
     _tmp = None      # 无意义, 用来处理数据
+
+    _post_type = None   # 用来判断是什么请求类型, 然后判断request_data取哪个
+    post_type_ls = ["list", "retrieve", "bulk_list"]  # post请求方法
+    create_unique = True  # 创建时是否允许重复
 
     def get(self, request: Request, *args, **kwargs):
         """
@@ -158,7 +245,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         - BaseList的默认get请求参数(仅在List操作时生效)
             - page_size: 分页器每页数量, 前端用来控制数据每页展示的数量, 在Pagination类中设置.
             - p: 第p页.
-            - order_type: 排序字段, 如"id"和"-id".
+            - order_type_ls: 排序字段, 如"id"和"-id".
         """
         if kwargs.get('pk'):
             self.method = 'retrieve'
@@ -168,6 +255,41 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             ret, status, msg = self.get_list_ret(request, *args, **kwargs)
         return APIResponse(ret, status=status, msg=msg)
 
+    def bulk_list(self, request, *args, **kwargs):
+        """
+        根据id批量删除
+        """
+        query_dc = self.get_request_data()
+
+        id_ls = get_list(query_dc, 'id_ls')
+        my_api_assert_function(id_ls, msg=f'id_ls[{id_ls}]不能为空!!!')
+        my_api_assert_function(isinstance(id_ls, list), msg=f'id_ls[{id_ls}]应为list类型, 不应为{id_ls.__class__.__name__}类型!!')
+
+        base_model = get_base_model(self.queryset)
+        qs_ls = base_model.objects.filter(id__in=id_ls)
+
+        page_size = query_dc.get('page_size', self.pagination_class.page_size)
+        p = query_dc.get('p', 1)
+        data, page_dc = paginate_qsls_to_dcls(qs_ls, self.get_serializer_class(), page=p, per_page=page_size)
+        ret = {
+            'page_dc': page_dc,
+            'data': data
+        }
+        return APIResponse(ret)
+
+    def post(self, request, *args, **kwargs):
+        """用post方法来跳转"""
+        post_type = request.data.get('post_type', 'list')
+        self._post_type = post_type
+        assert not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}"
+
+        if post_type in ['list', 'retrieve']:
+            return self.get(request, *args, **kwargs)
+        elif post_type == 'bulk_list':
+            return self.bulk_list(request, *args, **kwargs)
+        else:
+            return APIResponse(None, status=404, msg=f'请指定post操作类型, 取值范围: {self.post_type_ls}?')
+
     def get_serializer_class(self):
         if self.method == 'retrieve':
             self.serializer_class = self.retrieve_serializer_class or self.serializer_class
@@ -175,6 +297,9 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             self.serializer_class = self.list_serializer_class or self.serializer_class
         else:
             self.serializer_class = self.retrieve_serializer_class or self.serializer_class or self.list_serializer_class
+
+        if self.auto_generate_serializer_class and self.serializer_class is None:
+            self.serializer_class = get_base_serializer(self.queryset, base_fields=self.base_fields)
 
         assert self.serializer_class, '属性serializer_class不能为空!'
         return self.serializer_class
@@ -191,10 +316,16 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         try:
             ret = self.retrieve(request)
         except Exception as e:
-            # 没找到的情况, 404 Not Found
-            ret = None
-            status = 404
-            msg = str(e)
+            # 这里有坑, 因为有可能返回的是已经自定义好了的APIException, 例如权限不足错误.
+            if not isinstance(e, APIException):
+                # 没找到的情况, 404 Not Found
+                ret = None
+                status = 404
+                msg = str(e)
+                # msg = 'RetrieveError__' + str(e)
+            else:
+                raise e
+
         return ret, status, msg
 
     def get_object(self):
@@ -206,9 +337,10 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         queryset = get_base_model(queryset).objects.all()
 
         cmd = f'self._tmp=Q({retrieve_filter_field}={pk})'
-        exec (cmd)
+        exec(cmd)
+
         queryset = queryset.filter(self._tmp)
-        assert queryset.count() == 1, f'Error! 查询结果的数量应该等于1, 然而实际等于{queryset.count()}.'
+        assert queryset.count() == 1, f'__{status.HTTP_404_NOT_FOUND}__: Error! 查询结果的数量应该等于1, 然而实际等于{queryset.count()}.'
         obj = queryset[0]
         self.check_object_permissions(self.request, obj)
         return obj
@@ -236,16 +368,26 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             msg = str(e)
         return ret, status, msg
 
+    def get_request_data(self):
+        """
+        请求所携带的数据, 除了get方法跳过来的外, 均以请求体body携带的数据request.data优先.
+        """
+        if self._post_type is None:
+            ret = self.request.query_params or self.request.data
+        else:
+            # ret = self.request.GET or self.request.query_params or self.request.data
+            ret = self.request.data or self.request.query_params
+        return ret
+
     def get_ordered_queryset(self):
         """
         按order_type_ls指定的字段排序
         """
-        query_dc = self.request.query_params
-
-        order_type_ls = query_dc.getlist('order_type_ls') if query_dc.getlist('order_type_ls') else self.order_type_ls
+        query_dc = self.get_request_data()
+        order_type_ls = get_list(query_dc, key='order_type_ls') if get_list(query_dc, key='order_type_ls') else self.order_type_ls
         if not order_type_ls:
             # 旧版本可能用的order_type, 尝试赋值
-            order_type = query_dc.getlist('order_type')
+            order_type = get_list(query_dc, key='order_type')
             if order_type:
                 order_type_ls = order_type
         if order_type_ls:
@@ -256,7 +398,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                 raise ValueError(msg)
 
         # distinct操作
-        distinct_field_ls = self.request.query_params.getlist('distinct_field_ls') if self.request.query_params.getlist('distinct_field_ls') else self.distinct_field_ls
+        distinct_field_ls = get_list(query_dc, key='distinct_field_ls') if get_list(query_dc, key='distinct_field_ls') else self.distinct_field_ls
         if distinct_field_ls:
             assert isinstance(distinct_field_ls, (list, tuple)), 'distinct_field_ls因为list或者tuple!'
             self.queryset = self.queryset.distinct(*distinct_field_ls)
@@ -281,20 +423,24 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             """
             过滤字段filter_fields
             """
-            query_dc = self.request.query_params
+            query_dc = self.get_request_data()
+            FILTER_ALL_FIELDS = True if self.filter_fields in ['__all__', ['__all__']] else False
 
-            meta = get_base_model(self.queryset).objects.first()._meta
-            field_names = [field.name for field in meta.fields]
             self.queryset = self.get_queryset()
+            base_model = get_base_model(self.queryset)
+            if base_model.objects.count() == 0:
+                return self.queryset
 
+            meta = base_model.objects.first()._meta
+            field_names = [field.name for field in meta.fields]
             if self.queryset.count():
                 qs_i = self.queryset[0]
                 # 可能用annotate增加了注释字段, 所以要处理一下, 避免过滤出错
                 if hasattr(qs_i, 'keys') and len(qs_i.keys()) > len(field_names):
                     field_names = list(qs_i.keys())
 
-            for fn in field_names:
-                if fn in self.filter_fields:
+            for fn in field_names:      # fn: field_name
+                if FILTER_ALL_FIELDS or fn in self.filter_fields:
                     if fn in query_dc:
                         value = query_dc.get(fn)
                         if value is not None and value != '':       # 默认为空字符串时, 将不作为过滤条件
@@ -305,10 +451,11 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         return self.get_list_queryset()
 
     def list(self, request: Request, *args, **kwargs):
+        query_dc = self.get_request_data()
         if self.distinct_field_ls:
             # resp = self.get_serializer_class()(self.queryset, many=True).data
-            page_size = self.request.query_params.get('page_size', self.pagination_class.page_size)
-            p = self.request.query_params.get('p', 1)
+            page_size = query_dc.get('page_size', self.pagination_class.page_size)
+            p = query_dc.get('p', 1)
             resp, _ = paginate_qsls_to_dcls(self.queryset, self.get_serializer_class(), page=p, per_page=page_size)
         else:
             resp = super().list(request, *args, **kwargs)
@@ -333,8 +480,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
             # 分页信息
             count = data.get('count')
-            page_size = self.request.query_params.get('page_size', self.pagination_class.page_size)
-            p = self.request.query_params.get('p', 1)
+            page_size = self.get_request_data().get('page_size', self.pagination_class.page_size)
+            p = self.get_request_data().get('p', 1)
             total = math.ceil(count / int(page_size))
 
             page_dc = {
@@ -384,6 +531,10 @@ def get_base_model(obj) -> Model:
     if isinstance(obj, QuerySet):
         return obj.model
     else:
+        if isinstance(obj, ContentType):
+            base_model = obj.model_class()
+            return base_model
+
         if hasattr(obj, 'objects'):
             # BaseModel
             return obj
@@ -412,11 +563,17 @@ def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16):
 
     p = Paginator(qsls, per_page)
     page_obj = p.get_page(page)
+    # page_dc = {
+    #     'num_pages': p.num_pages,
+    #     'count_objects': p.count,
+    #     'current_page_number': page_obj.number,
+    # }
     page_dc = {
-        'num_pages': p.num_pages,
-        'count_objects': p.count,
-        'current_page_number': page_obj.number,
-    }
+            "count_items": int(p.count),
+            "total_pages": int(p.num_pages),
+            "page_size": int(per_page),
+            "p": int(page)
+        },
 
     # --- 处理单个Model和多个Model的情况
     if serializer.__class__.__name__ == 'function':
@@ -493,9 +650,13 @@ def api_decorator(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
+            # my_api_assert_function(0, msg=f'Error! {str(e)}')
+
             print('--- API Error! ---')
             print(e)
-            return APIResponse(None, status=404, msg=f'Error! {str(e)}')
+            ret = APIResponse(None, status=404, msg=f'Error! {str(e)}')
+            return ret
+
     return wrapped_function
 
 
@@ -581,22 +742,30 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
         - 查询详情页, 需指定id.
           - 如: `GET url/id/`
     """
-    post_type_ls = ["create", "delete", "retrieve", "update"]       # post请求方法
+    post_type_ls = ["list", "retrieve", "create", "update", "delete", "bulk_delete", "bulk_update", "bulk_list"]       # post请求方法
+    _post_type = None
     create_unique = True        # 创建时是否允许重复
 
     def post(self, request, *args, **kwargs):
         """增"""
         post_type = request.data.get('post_type', 'create')
+        self._post_type = post_type
         assert not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}"
 
         if post_type == 'create':
             return self.create(request, *args, **kwargs)
         elif post_type == 'delete':
             return self.destroy(request, *args, **kwargs)
-        elif post_type == 'retrieve':
+        elif post_type in ['list', 'retrieve']:
             return self.get(request, *args, **kwargs)
         elif post_type == 'update':
             return self.put(request, *args, **kwargs)
+        elif post_type == 'bulk_delete':
+            return self.bulk_delete(request, *args, **kwargs)
+        elif post_type == 'bulk_update':
+            return self.bulk_update(request, *args, **kwargs)
+        elif post_type == 'bulk_list':
+            return self.bulk_list(request, *args, **kwargs)
         else:
             return APIResponse(None, status=404, msg='请指定post操作类型, [create, update, delete]?')
 
@@ -606,7 +775,79 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
 
     def put(self, request, *args, **kwargs):
         """改"""
-        return self.update(request, *args, **kwargs)
+        ret = self.partial_update(request, *args, **kwargs)
+        return ret
+
+    def bulk_delete(self, request, *args, **kwargs):
+        """
+        根据id批量删除
+        """
+        request_data = self.get_request_data()
+
+        id_ls = get_list(request_data, 'id_ls')
+        my_api_assert_function(id_ls, msg=f'id_ls[{id_ls}]不能为空!!!')
+        my_api_assert_function(isinstance(id_ls, list), msg=f'id_ls[{id_ls}]应为list类型, 不应为{id_ls.__class__.__name__}类型!!')
+
+        base_model = get_base_model(self.queryset)
+        qs_ls = base_model.objects.filter(id__in=id_ls)
+        qs_ls.delete()
+        return APIResponse()
+
+    def bulk_update(self, request, *args, **kwargs):
+        """
+        批量更新
+        """
+        request_data = self.get_request_data()
+
+        id_ls = get_list(request_data, 'id_ls')
+        field_dc = request_data.get('field_dc')
+
+        my_api_assert_function(id_ls, msg=f'id_ls[{id_ls}]不能为空!!!')
+        my_api_assert_function(isinstance(id_ls, list), msg=f'id_ls[{id_ls}]应为list类型, 不应为{id_ls.__class__.__name__}类型!!')
+        my_api_assert_function(field_dc, 'field_dc不能为空!')
+
+        if isinstance(field_dc, str):
+            field_dc = json.loads(field_dc)
+
+        # 开始批量更新, 注意只支持2层嵌套.
+        foreign_key_field_dc = {}
+        original_field_dc = {}
+        for k, v in field_dc.items():
+            dc = {k: v}
+            if '__' in k:
+                foreign_key_field_dc.update(dc)
+            else:
+                original_field_dc.update(dc)
+
+        base_model = get_base_model(self.queryset)
+        qs_ls: m.QuerySet = base_model.objects.filter(id__in=id_ls)
+        my_api_assert_function(qs_ls.count(), '未找到id_ls对应的数据!')
+
+        qs_i = qs_ls[0]     # 样例数据
+
+        # 先更新原生字段
+        qs_ls.update(**original_field_dc)
+
+        # 再依次更新外键字段
+        for k, v in foreign_key_field_dc.items():
+            fk_model_name, fk_field = k.split('__')
+            dc = {fk_field: v}
+            foreign_key_obj_i = getattr(qs_i, fk_model_name)
+            foreign_key_model = get_base_model(foreign_key_obj_i)
+            base_field = getattr(base_model, fk_model_name)
+            assert hasattr(base_field, 'related'), '字段不是外键?'
+            related = getattr(base_field, 'related')
+            foreign_key_field_name = related.field.name
+            filter_dc = {
+                f'{foreign_key_field_name}__id__in': id_ls
+            }
+            qs_ls = foreign_key_model.objects.filter(**filter_dc)
+            qs_ls.update(**dc)
+
+        # 返回更新后的数据
+        qs_ls: m.QuerySet = base_model.objects.filter(id__in=id_ls)
+        ret = self.get_serializer_class()(qs_ls, many=True).data
+        return APIResponse(ret)
 
 
 class DecoratorBaseListView(BaseListView):
@@ -658,6 +899,15 @@ from django.db import models as m
 
 
 def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerField, alias=None):
+    """
+    获取子查询
+    :param my_model:
+    :param field_name:
+    :param function_name:
+    :param output_field:
+    :param alias:
+    :return:
+    """
     base_model = get_base_model(my_model)
     meta = base_model._meta
 
@@ -675,5 +925,6 @@ def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerFi
         output_field = my_output_field()
 
     return MySubQuery
+
 
 

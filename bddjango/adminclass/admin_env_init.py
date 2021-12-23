@@ -15,14 +15,13 @@ CHANGE_LIST_HTML_PATH = os.path.join('entities', 'simpleui_change_list.html') if
 
 # --- 默认检测是否simpleui + guadian, 配置object权限按钮的样式. ps: 优先使用settings中的设置.
 use_guardian_settings_name = 'BD_USE_GUARDIAN'
+CHANGE_FORM_TEMPLATE = 'admin/guardian/model/change_form.html'      # guardian的默认样式
 if not hasattr(settings, use_guardian_settings_name):
     BD_USE_GUARDIAN = False
     if 'guardian' in app_ls:
         BD_USE_GUARDIAN = True
         if BD_USE_SIMPLEUI:
             CHANGE_FORM_TEMPLATE = 'admin/guardian/model/simpleui_guardian_change_form.html'
-        else:
-            CHANGE_FORM_TEMPLATE = 'admin/guardian/model/change_form.html'
 else:
     BD_USE_GUARDIAN = getattr(settings, use_guardian_settings_name)
 

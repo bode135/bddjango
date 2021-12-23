@@ -46,26 +46,27 @@ class SingleConditionSearch:
 
         assert self.model is not None, '请指定model类型!'
 
-        if isinstance(self.model, QuerySet):
-            assert self.model.count(), '请指定检索的queryset类型!'
-            model = self.model[0]
-        else:
-            model = self.model
+        # print('~~~~~~~~~___', self.model)
+        # if isinstance(self.model, QuerySet):
+        #     assert self.model.count(), '请指定检索的queryset类型!'
+        #     model = self.model[0]
+        # else:
+        #     model = self.model
 
-        print(accuracy)
-        if hasattr(model, '_meta'):
-            if model._meta.get_field(search_field).get_internal_type() in ('TextField', 'CharField'):
-                if accuracy:
-                    cmd = f'self.qs = Q({search_field}="{search_keywords}")'
-                else:
-                    cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
-            else:
-                cmd = f'self.qs = Q({search_field}={search_keywords})'
-        else:
-            if accuracy:
-                cmd = f'self.qs = Q({search_field}="{search_keywords}")'
-            else:
-                cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
+        # print(accuracy)
+        # if hasattr(model, '_meta'):
+        #     if model._meta.get_field(search_field).get_internal_type() in ('TextField', 'CharField'):
+        #         if accuracy:
+        #             cmd = f'self.qs = Q({search_field}="{search_keywords}")'
+        #         else:
+        #             cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
+        #     else:
+        #         cmd = f'self.qs = Q({search_field}={search_keywords})'
+        # else:
+        #     if accuracy:
+        #         cmd = f'self.qs = Q({search_field}="{search_keywords}")'
+        #     else:
+        #         cmd = f'self.qs = Q({search_field}__contains="{search_keywords}")'
 
         def get_suffix_by_accuracy(accuracy):
             """
@@ -144,14 +145,9 @@ class MultipleConditionSearch:
 
     def __init__(self, model, condition_ls: list):
         self.QS = Q()
-        # self.QS.add(Q(), Q.AND)
 
         self.queryset = []
         self.condition_ls = condition_ls        # 检索条件
-        # if isinstance(model, QuerySet):
-        #     assert model.count(), '请指定检索的queryset类型!'
-        #     self.model = model[0]
-        # else:
         self.model = model
 
         class MySingleConditionSearch(SingleConditionSearch):
@@ -238,7 +234,6 @@ class AdvancedSearchView(BaseListView):
         return APIResponse(ret, status=status, msg=msg)
 
     def get_queryset(self):
-
         if self.search_condition_ls is None:
             search_condition_ls = self.request.data.get('search_condition_ls', [])
             if not search_condition_ls:

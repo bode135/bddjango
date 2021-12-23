@@ -21,7 +21,7 @@ from django.utils.http import urlquote
 from .. import get_model_max_id_in_db
 from .. import reset_db_sequence
 
-
+import shutil
 # --- 初始化环境 ---
 from .admin_env_init import CHANGE_LIST_HTML_PATH, TEMPDIR, BD_USE_GUARDIAN, CHANGE_FORM_TEMPLATE
 from tqdm import tqdm
@@ -52,19 +52,24 @@ def _remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
         while tt.during(5):
             i += 1
             dirpath = os.path.join(tempdir, fpath)
+
             try:
-                os.remove(dirpath)
+                if os.path.isdir(dirpath):
+                    # os.removedirs(dirpath)
+                    shutil.rmtree(dirpath)
+                else:
+                    os.remove(dirpath)
                 print(f"~~~ success: 移除文件[{dirpath}]成功! -- 第[{i}]次")
                 break
             except:
-                print(f"** 第[{i}]次移除文件[{dirpath}]失败...")
+                print(f"** 第[{i}]次移除文件[{dirpath}]失败...可能文件被占用中?")
                 tt.sleep(1)
-                if i > 5:
+                if i > 3:
                     print(f"======== Warning: 移除文件[{dirpath}]失败!")
     print('*************** 缓存清理完毕 *************')
 
 
-def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS = 5):
+def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
     """
     当大于MAX_TEMPS时启动临时文件清理程序
     """
@@ -76,6 +81,7 @@ def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS = 5):
     else:
         print(f'...缓存还足够, 不用清理... 缓存文件: {temps}/{MAX_TEMPS}')
     return
+
 
 class IDAdmin(admin.ModelAdmin):
     """
@@ -246,11 +252,16 @@ class BulkDeleteMixin:
 
 class ExportExcelMixin:
     export_asc = False      # 按id升序导出
+    add_index = False
 
-    def export_as_excel(self, request, queryset=None, model=None):
+    def export_as_excel(self, request, queryset=None, model=None, extra_fields_dc=None):
         if model is None:
             # 如果没有指定model, 则采用默认的model, 并导出全部
-            meta = self.model._meta
+            if hasattr(self, 'model'):
+                base_model = self.model
+            else:
+                base_model = get_base_model(queryset)
+            meta = base_model._meta
         else:
             meta = model._meta
             queryset = model.objects.all()
@@ -259,6 +270,8 @@ class ExportExcelMixin:
         field_names = [field.name for field in meta.fields]
         verbose_names = [field.verbose_name for field in meta.fields]
         conv_name_to_verbose_dc = dict(zip(field_names, verbose_names))
+        if extra_fields_dc:
+            conv_name_to_verbose_dc.update(extra_fields_dc)
 
         if model is None:
             """
@@ -268,28 +281,24 @@ class ExportExcelMixin:
             from django_pandas import io
             from bdtime import tt
             from django.db import models as m
-            print('~~~~~~~~~~~~ queryset.count():', queryset.count())
             qs: m.QuerySet = queryset
 
-            tt.__init__()
-
-            print('开始读入sql...')
-            qs: m.QuerySet
-            # import pandas as pd
-            # from django.db import connection
-            # df = pd.concat([df for df in pd.read_sql(f'SELECT * FROM {meta.db_table}', connection, chunksize=100)], axis=0)
-            df = io.read_frame(qs=qs)
-            df.columns = [conv_name_to_verbose_dc.get(col) for col in df.columns]
-            print('df读入成功: ', tt.now(2))
-
-            print('开始保存为excel...', tt.now(2))
             time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             tmp_file_name = f"{meta.verbose_name}_{time_str}.xlsx"
             fpath = os.path.join(TEMPDIR, tmp_file_name)
-            # df.to_excel(fpath, index=False, encoding='unicode_escape')       # unicode_escape
-            df.to_excel(fpath, index=False)       # unicode_escape
-            print('保存为Excel成功!', tt.now(2))
-            del df
+
+            def save_qs_to_excel(qs, fpath):
+                tt.__init__()
+                qs: m.QuerySet
+                df = io.read_frame(qs=qs)
+                df.columns = [conv_name_to_verbose_dc.get(col) if conv_name_to_verbose_dc.get(col) else col for col in
+                              df.columns]
+                # df.to_excel(fpath, index=False, encoding='unicode_escape')       # unicode_escape
+                df.to_excel(fpath, index=self.add_index)  # unicode_escape
+                # print('保存为Excel成功!', tt.now(2))
+                del df
+                return fpath
+            save_qs_to_excel(qs, fpath)
 
             # big file download
             def file_iterator(file_name, open_model='rb', chunk_size=512):
@@ -301,7 +310,7 @@ class ExportExcelMixin:
                         else:
                             break
 
-            print('write response', tt.now(2))
+            # print('write response', tt.now(2))
             response = StreamingHttpResponse(file_iterator(fpath))
             # response['Content-Type'] = 'application/octet-stream'
             filename = urlquote(f"{meta.verbose_name}.xlsx")
@@ -416,16 +425,21 @@ class ImportAdmin(IDAdmin):
                     df = pd.read_excel(wb)
                 else:
                     df = None
-                df_rows = df.shape[0]        # 一共多少行数据
-                titles = df.columns.tolist()
 
+                df_rows = df.shape[0]        # 一共多少行数据
+
+                # 删除Unnamed列
+                df = df.loc[:, ~df.columns.str.match('Unnamed')]
+
+                # 找出在model定义的列
                 meta = self.model._meta
                 field_names = [field.name for field in meta.fields]
                 verbose_names = [field.verbose_name for field in meta.fields]
                 field_dc = dict(zip(verbose_names, field_names))
-
+                valid_columns = [column_i in field_names or column_i in verbose_names for column_i in df.columns]
+                df = df.loc[:, valid_columns]
+                titles = df.columns.tolist()
                 title_ls = [field_dc.get(title_i) if field_dc.get(title_i) else title_i for title_i in titles]
-
                 curr_id = get_model_max_id_in_db(self.model)
 
                 df1 = df.copy()

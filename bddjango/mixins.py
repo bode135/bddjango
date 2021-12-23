@@ -53,10 +53,11 @@ class MyDestroyModelMixin:
     Destroy a model instance.
     """
     def destroy(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-        except Exception as e:
-            return APIResponse(None, status=403, msg='Error! 没找到对应记录! '+ str(e))
+        instance = self.get_object()
+        # try:
+        #     instance = self.get_object()
+        # except Exception as e:
+        #     return APIResponse(None, status=403, msg='Error! error_msg:'+ str(e))
         self.perform_destroy(instance)
         return APIResponse(None, status=status.HTTP_204_NO_CONTENT, msg='ok, 删除成功.')
 
