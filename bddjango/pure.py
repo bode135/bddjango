@@ -12,7 +12,7 @@ def version():
     - CompleteModelView
         - 完善导出功能
     """
-    v = "1.4.4"
+    v = "1.4.5"
     return v
 
 
