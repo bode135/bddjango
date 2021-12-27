@@ -254,7 +254,7 @@ class ExportExcelMixin:
     export_asc = False      # 按id升序导出
     add_index = False
 
-    def export_as_excel(self, request, queryset=None, model=None, extra_fields_dc=None):
+    def export_as_excel(self, request, queryset=None, model=None, extra_fields_dc=None, add_index_column=0, ordering=None):
         if model is None:
             # 如果没有指定model, 则采用默认的model, 并导出全部
             if hasattr(self, 'model'):
@@ -276,29 +276,42 @@ class ExportExcelMixin:
         if model is None:
             """
             导出全部的时候, 大文件用流媒体传输, 并分批次读入, 防止超过云服务器带宽.
+            未完待续...
             """
             from django.http import StreamingHttpResponse
             from django_pandas import io
             from bdtime import tt
             from django.db import models as m
+            # print('~~~~~~~~~~~~ queryset.count():', queryset.count())
             qs: m.QuerySet = queryset
 
+            tt.__init__()
+
+            # print('开始读入sql...')
+            qs: m.QuerySet
+            # import pandas as pd
+            # from django.db import connection
+            # df = pd.concat([df for df in pd.read_sql(f'SELECT * FROM {meta.db_table}', connection, chunksize=100)], axis=0)
+            df = io.read_frame(qs=qs)
+            df.columns = [conv_name_to_verbose_dc.get(col) if conv_name_to_verbose_dc.get(col) else col for col in df.columns]
+            # print('df读入成功: ', tt.now(2))
+
+            if add_index_column:
+                # 增加一个序号列, start为 add_index_column - 1
+                index = pd.Series(df.index) + int(add_index_column) - 1    # add_index_column为2, 则从1开始
+                df.insert(loc=0, column='序号', value=index, allow_duplicates=False)
+
+            if ordering:
+                df = df[ordering]
+
+            # print('开始保存为excel...', tt.now(2))
             time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             tmp_file_name = f"{meta.verbose_name}_{time_str}.xlsx"
             fpath = os.path.join(TEMPDIR, tmp_file_name)
-
-            def save_qs_to_excel(qs, fpath):
-                tt.__init__()
-                qs: m.QuerySet
-                df = io.read_frame(qs=qs)
-                df.columns = [conv_name_to_verbose_dc.get(col) if conv_name_to_verbose_dc.get(col) else col for col in
-                              df.columns]
-                # df.to_excel(fpath, index=False, encoding='unicode_escape')       # unicode_escape
-                df.to_excel(fpath, index=self.add_index)  # unicode_escape
-                # print('保存为Excel成功!', tt.now(2))
-                del df
-                return fpath
-            save_qs_to_excel(qs, fpath)
+            # df.to_excel(fpath, index=False, encoding='unicode_escape')       # unicode_escape
+            df.to_excel(fpath, index=self.add_index)       # unicode_escape
+            # print('保存为Excel成功!', tt.now(2))
+            del df
 
             # big file download
             def file_iterator(file_name, open_model='rb', chunk_size=512):

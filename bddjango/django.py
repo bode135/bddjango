@@ -262,11 +262,16 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         query_dc = self.get_request_data()
 
         id_ls = get_list(query_dc, 'id_ls')
+        self.method = query_dc.get('http_method', 'retrieve')       # 优先返回retrieve详情数据
+
         my_api_assert_function(id_ls, msg=f'id_ls[{id_ls}]不能为空!!!')
         my_api_assert_function(isinstance(id_ls, list), msg=f'id_ls[{id_ls}]应为list类型, 不应为{id_ls.__class__.__name__}类型!!')
 
         base_model = get_base_model(self.queryset)
         qs_ls = base_model.objects.filter(id__in=id_ls)
+        self.queryset = qs_ls
+
+        qs_ls = self.get_ordered_queryset()
 
         page_size = query_dc.get('page_size', self.pagination_class.page_size)
         p = query_dc.get('p', 1)
@@ -281,7 +286,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         """用post方法来跳转"""
         post_type = request.data.get('post_type', 'list')
         self._post_type = post_type
-        assert not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}"
+        my_api_assert_function(not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}")
 
         if post_type in ['list', 'retrieve']:
             return self.get(request, *args, **kwargs)
@@ -373,7 +378,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         请求所携带的数据, 除了get方法跳过来的外, 均以请求体body携带的数据request.data优先.
         """
         if self._post_type is None:
-            ret = self.request.query_params or self.request.data
+            ret = self.request.query_params
         else:
             # ret = self.request.GET or self.request.query_params or self.request.data
             ret = self.request.data or self.request.query_params
@@ -650,12 +655,22 @@ def api_decorator(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            # my_api_assert_function(0, msg=f'Error! {str(e)}')
 
             print('--- API Error! ---')
             print(e)
-            ret = APIResponse(None, status=404, msg=f'Error! {str(e)}')
-            return ret
+
+            # --- postgres的idle链接需要解决下
+            # from django.db import close_old_connections
+            # from django import db
+            # db.close_connection()
+            # close_old_connections()
+            e_str = str(e)
+            if 'client' in e_str:
+                print('!!!!!! 可能出现postgresql的idle链接状况???')
+
+            my_api_assert_function(False, msg=f'Error! {str(e)}', status='404')
+            # ret = APIResponse(None, status=404, msg=f'Error! {str(e)}')
+            # return ret
 
     return wrapped_function
 
@@ -750,7 +765,7 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
         """增"""
         post_type = request.data.get('post_type', 'create')
         self._post_type = post_type
-        assert not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}"
+        my_api_assert_function(not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}")
 
         if post_type == 'create':
             return self.create(request, *args, **kwargs)
@@ -927,4 +942,37 @@ def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerFi
     return MySubQuery
 
 
+def get_obj_by_content_type(obj_id, model_name, app_label):
+    ct_qs_ls = ContentType.objects.filter(app_label=app_label, model=model_name)
+    assert ct_qs_ls.count() == 1, f'ContentType数量不为1! current_value: {ct_qs_ls.count()}'
+    ct_qs_i = ct_qs_ls[0]
+    base_model = ct_qs_i.model_class()
+    obj = base_model.objects.get(id=obj_id)
+    return obj
+
+
+def get_QS_by_dc(dc, add_type):
+    """
+    根据dc返回QS
+    :param dc: 过滤条件
+    :param add_type: 合并逻辑
+    :return: QS
+    """
+    QS = Q()
+    for k, v in dc.items():
+        d = {k: v}
+        QS.add(Q(**d), add_type)
+    return QS
+
+
+def get_model_verbose_name_dc():
+    ct_qs_ls = ContentType.objects.all()
+    dc = {}
+    for ct_qs_i in ct_qs_ls:
+        base_model = ct_qs_i.model_class()
+        if base_model is not None:
+            k = base_model._meta.verbose_name
+            v = ct_qs_i.model
+            dc.update({k: v})
+    return dc
 

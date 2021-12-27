@@ -7,13 +7,10 @@ import os
 
 def version():
     """
-    * 2021/12/23
+    * 2021/12/27
 
     - CompleteModelView
-        - 改为默认部分更新
-        - 批量更新和批量删除
-        - serializer_class: 自动生成序列化器
-        - bulk_list等一系列批量操作
+        - 完善导出功能
     """
     v = "1.4.4"
     return v
