@@ -41,7 +41,7 @@ def _remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
 
     if temps < MAX_TEMPS:
         print(f'...缓存还足够, 不用清理... 缓存容量: {temps}/{MAX_TEMPS}')
-        return
+        return False
     tt = Time()
 
     tt.sleep(1)
@@ -67,6 +67,7 @@ def _remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
                 if i > 3:
                     print(f"======== Warning: 移除文件[{dirpath}]失败!")
     print('*************** 缓存清理完毕 *************')
+    return True
 
 
 def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
@@ -78,9 +79,10 @@ def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
     if temps > MAX_TEMPS:
         t1 = threading.Thread(target=_remove_temp_file, args=(tempdir, MAX_TEMPS, ))
         t1.start()
+        return True
     else:
         print(f'...缓存还足够, 不用清理... 缓存文件: {temps}/{MAX_TEMPS}')
-    return
+        return False
 
 
 class IDAdmin(admin.ModelAdmin):

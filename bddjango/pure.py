@@ -7,12 +7,11 @@ import os
 
 def version():
     """
-    * 2021/12/27
+    * 2021/12/28
 
-    - CompleteModelView
-        - 完善导出功能
+    - 装饰器解决idle链接问题
     """
-    v = "1.4.5"
+    v = "1.4.6"
     return v
 
 

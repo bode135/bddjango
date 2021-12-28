@@ -649,29 +649,32 @@ def api_decorator(func):
     * API装饰器
 
     - 如果运行出错, 将格式化输出错误的信息, 并返回给前端, 而不会报错.
+    - 自动处理postgresql中idle状态connection过多的情况
     """
     @wraps(func)
     def wrapped_function(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-
             print('--- API Error! ---')
             print(e)
+            msg = f'Error! {str(e)}'
 
-            # --- postgres的idle链接需要解决下
-            # from django.db import close_old_connections
-            # from django import db
-            # db.close_connection()
-            # close_old_connections()
             e_str = str(e)
             if 'client' in e_str:
-                print('!!!!!! 可能出现postgresql的idle链接状况???')
-
-            my_api_assert_function(False, msg=f'Error! {str(e)}', status='404')
-            # ret = APIResponse(None, status=404, msg=f'Error! {str(e)}')
-            # return ret
-
+                msg += '!!!!!! 可能出现postgresql的idle链接状况???'
+                print(msg)
+                # --- postgres的idle链接需要解决, 关闭旧链接(以下使用), 或单线程运行`manage.py runserver --nothreading`
+                from django.db import close_old_connections
+                from django.db import connection
+                close_old_connections()
+                with connection.cursor() as cursor:
+                    sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle'"
+                    cursor.execute(sql)
+                    row = cursor.fetchall()
+                    print(sql)
+                    print(row)
+            my_api_assert_function(False, msg=msg, status='404')
     return wrapped_function
 
 
