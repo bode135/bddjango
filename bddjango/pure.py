@@ -7,11 +7,11 @@ import os
 
 def version():
     """
-    * 2021/1/4
+    * 2021/2/17
 
-    完善BaseListView的filter_fields相关执行代码
+    党史项目结束, 海南项目开始
     """
-    v = "1.4.7"
+    v = "2.1.0"     # 正式版: 2.1.0
     return v
 
 
