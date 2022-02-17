@@ -7,9 +7,9 @@ import os
 
 def version():
     """
-    * 2021/12/28
+    * 2021/1/4
 
-    - 装饰器解决idle链接问题
+    完善BaseListView的filter_fields相关执行代码
     """
     v = "1.4.6"
     return v

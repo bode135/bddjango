@@ -449,7 +449,11 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                     if fn in query_dc:
                         value = query_dc.get(fn)
                         if value is not None and value != '':       # 默认为空字符串时, 将不作为过滤条件
-                            exec(f"self.queryset = self.queryset.filter(Q({fn}='{value}'))")
+                            dc = {fn: value}
+                            q = Q(**dc)
+                            self.queryset = self.queryset.filter(q)
+                            # ss = f"self.queryset = self.queryset.filter(Q({fn}='{value}'))"
+                            # exec(f"self.queryset = self.queryset.filter(Q({fn}='{value}'))")
         return self.queryset
 
     def _get_list_queryset(self):       # 兼容问题
@@ -969,13 +973,26 @@ def get_QS_by_dc(dc, add_type):
 
 
 def get_model_verbose_name_dc():
+    """
+    获得model_verbose_name对应的ContentType的id
+    """
     ct_qs_ls = ContentType.objects.all()
     dc = {}
     for ct_qs_i in ct_qs_ls:
         base_model = ct_qs_i.model_class()
         if base_model is not None:
             k = base_model._meta.verbose_name
-            v = ct_qs_i.model
+            # v = ct_qs_i.model
+            v = ct_qs_i
             dc.update({k: v})
     return dc
+
+
+def get_user_ip(request):
+    context = request.parser_context
+    if 'HTTP_X_FORWARDED_FOR' in context["request"].META:
+        user_ip = context["request"].META['HTTP_X_FORWARDED_FOR']
+    else:
+        user_ip = context["request"].META['REMOTE_ADDR']
+    return user_ip
 
