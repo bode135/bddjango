@@ -11,7 +11,7 @@ def version():
 
     完善BaseListView的filter_fields相关执行代码
     """
-    v = "1.4.6"
+    v = "1.4.7"
     return v
 
 
