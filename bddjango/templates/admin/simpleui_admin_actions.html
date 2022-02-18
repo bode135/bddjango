@@ -418,6 +418,7 @@
             //TODO 需要做国际化
             if (data_name.substr(0, 3) == "fc_"){
                 // 强制运行, 不用选择数据. 按钮名data_name必须以"fc_"开头.
+                console.log('强制运行!! --- ', data_name);
                 done.call(this);
             }
             else if (checkbox_checked == 0 && data_name != "add_item" && !_action.customButton[data_name].action_url){

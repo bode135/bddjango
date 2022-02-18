@@ -3,6 +3,7 @@
 """
 import json
 import os
+import pandas as pd
 
 
 def version():
@@ -10,8 +11,16 @@ def version():
     * 2021/2/17
 
     党史项目结束, 海南项目开始
+
+    ## 修改部分 (未上传)
+        - 修复了AdvancedSearchView post时page_size失效的问题
+        - 对`list`的数据返回格式进行了优化, 避免了自定义page_size时无效的bug
+        - `BaseListView`增加`set_request_data`方法
+        - 优化`distince_type_ls`和o`rder_type_ls`的错误提示
+        - `AdvancedSearchView`增加`Q_add_ls`检索方法
+        - `.pure`增加`convert_query_parameter_to_bool`函数
     """
-    v = "2.1.0"     # 正式版: 2.1.0
+    v = "2.1.1"     # 正式版: 2.1.0
     return v
 
 
@@ -118,3 +127,27 @@ def get_whole_codename_by_obj_and_perm(obj=None, perm=None, suffix_model_name=Fa
     else:
         ret = perm
     return ret
+
+
+def conv_df_to_serializer_data(df) -> list:
+    assert isinstance(df, pd.DataFrame), 'df的类型必须是DataFrame!'
+    ret_ls = []
+    for index, row in df.iterrows():
+        k = row.index.tolist()
+        v = row.values.tolist()
+        data = dict(zip(k, v))
+
+        ret_ls.append(data)
+    return ret_ls
+
+
+def convert_query_parameter_to_bool(query_parameter):
+    """
+    将请求参数转化为`bool`类型
+
+    :param query_parameter: 请求参数
+    :return: bool, true or false
+    """
+    ret = query_parameter not in ['0', 0, None, 'None', 'Null', [], {}]
+    return ret
+

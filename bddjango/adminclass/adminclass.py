@@ -685,7 +685,10 @@ def list_display_admin_register(cls):
     return cls
 
 
-class BaseAdmin(ListDisplayAdmin):
+class ForceRunActionsAdmin(ListDisplayAdmin):
+    """
+    增加强制运行actions功能
+    """
     def changelist_view(self, request, extra_context=None):
         """
         这里想跳过"必须选择一个数据"的确认框,
@@ -725,3 +728,7 @@ class PureAdmin(admin.ModelAdmin):
                     post.update({ACTION_CHECKBOX_NAME: str(u.id)})
                 request._set_post(post)
         return super().changelist_view(request, extra_context)
+
+
+BaseAdmin = ForceRunActionsAdmin
+

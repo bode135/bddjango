@@ -213,6 +213,9 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         - Retrieve:
             GET /api/index/BaseList/5/
     """
+    
+    _name = 'BaseListView'
+    
     renderer_classes = (StateMsgResultJSONRenderer,)
 
     pagination_class = Pagination
@@ -373,16 +376,25 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             msg = str(e)
         return ret, status, msg
 
-    def get_request_data(self):
+    def get_request_data(self)->dict:
         """
         请求所携带的数据, 除了get方法跳过来的外, 均以请求体body携带的数据request.data优先.
         """
+        if not hasattr(self, 'request'):
+            return {}
+
         if self._post_type is None:
             ret = self.request.query_params
         else:
             # ret = self.request.GET or self.request.query_params or self.request.data
             ret = self.request.data or self.request.query_params
+
+        if hasattr(self, '_set_request_data') and getattr(self, '_set_request_data'):
+            ret = self._set_request_data
         return ret
+
+    def set_request_data(self, request_data):
+        self._set_request_data = request_data
 
     def get_ordered_queryset(self):
         """
@@ -390,12 +402,20 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         """
         query_dc = self.get_request_data()
         order_type_ls = get_list(query_dc, key='order_type_ls') if get_list(query_dc, key='order_type_ls') else self.order_type_ls
+        distinct_field_ls = get_list(query_dc, key='distinct_field_ls') if get_list(query_dc, key='distinct_field_ls') else self.distinct_field_ls
+
         if not order_type_ls:
             # 旧版本可能用的order_type, 尝试赋值
             order_type = get_list(query_dc, key='order_type')
             if order_type:
                 order_type_ls = order_type
+
         if order_type_ls:
+            # print('distinct_field_ls', distinct_field_ls, '--- order_type_ls', order_type_ls)
+            if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
+                d_len = len(distinct_field_ls)
+                my_api_assert_function(order_type_ls[:d_len] == distinct_field_ls, 'order_type_ls必须包含distinct_field_ls, 且需要将distinct_field_ls置于最前方!')
+
             try:
                 self.queryset = order_by_order_type_ls(self.queryset, order_type_ls)
             except ValueError as e:
@@ -403,8 +423,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                 raise ValueError(msg)
 
         # distinct操作
-        distinct_field_ls = get_list(query_dc, key='distinct_field_ls') if get_list(query_dc, key='distinct_field_ls') else self.distinct_field_ls
-        if distinct_field_ls:
+        if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
             assert isinstance(distinct_field_ls, (list, tuple)), 'distinct_field_ls因为list或者tuple!'
             self.queryset = self.queryset.distinct(*distinct_field_ls)
 
@@ -461,50 +480,47 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     def list(self, request: Request, *args, **kwargs):
         query_dc = self.get_request_data()
-        if self.distinct_field_ls:
-            # resp = self.get_serializer_class()(self.queryset, many=True).data
-            page_size = query_dc.get('page_size', self.pagination_class.page_size)
-            p = query_dc.get('p', 1)
-            resp, _ = paginate_qsls_to_dcls(self.queryset, self.get_serializer_class(), page=p, per_page=page_size)
-        else:
-            resp = super().list(request, *args, **kwargs)
-        ret = self._conv_data_format(resp)
+        page_size = query_dc.get('page_size', self.pagination_class.page_size)
+        p = query_dc.get('p', 1)
+        resp, page_dc = paginate_qsls_to_dcls(self.queryset, self.get_serializer_class(), page=p, per_page=page_size)
+        ret = self._conv_data_format(resp, page_dc)
         return ret
 
-    def _conv_data_format(self, data: (dict, Response)):
+    def _conv_data_format(self, data: (dict, Response), page_dc):
         """
         调整为cnki标准格式
         """
-        if isinstance(data, list):
-            page_dc = {
-                'count_items': len(data),
-                'total_pages': 1,
-                'page_size': len(data),
-                'p': 1,
-            }
-            results = data
-        else:
-            if isinstance(data, Response):
-                data = data.data
 
-            # 分页信息
-            count = data.get('count')
-            page_size = self.get_request_data().get('page_size', self.pagination_class.page_size)
-            p = self.get_request_data().get('p', 1)
-            total = math.ceil(count / int(page_size))
-
-            page_dc = {
-                'count_items': count,
-                'total_pages': total,
-                'page_size': page_size,
-                'p': p,
-            }
-
-            results = data.get('results')
+        # if isinstance(data, list):
+        #     page_dc = {
+        #         'count_items': len(data),
+        #         'total_pages': 1,
+        #         'page_size': len(data),
+        #         'p': 1,
+        #     }
+        #     results = data
+        # else:
+        #     if isinstance(data, Response):
+        #         data = data.data
+        #
+        #     # 分页信息
+        #     count = data.get('count')
+        #     page_size = self.get_request_data().get('page_size', self.pagination_class.page_size)
+        #     p = self.get_request_data().get('p', 1)
+        #     total = math.ceil(count / int(page_size))
+        #
+        #     page_dc = {
+        #         'count_items': count,
+        #         'total_pages': total,
+        #         'page_size': page_size,
+        #         'p': p,
+        #     }
+        #
+        #     results = data.get('results')
 
         ret = {
             'page_dc': page_dc,
-            'data': results,
+            'data': data,
         }
         return ret
 
@@ -764,6 +780,8 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
         - 查询详情页, 需指定id.
           - 如: `GET url/id/`
     """
+    _name = 'CompleteModelView'
+
     post_type_ls = ["list", "retrieve", "create", "update", "delete", "bulk_delete", "bulk_update", "bulk_list"]       # post请求方法
     _post_type = None
     create_unique = True        # 创建时是否允许重复
@@ -922,13 +940,22 @@ from django.db import models as m
 
 def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerField, alias=None):
     """
-    获取子查询
-    :param my_model:
-    :param field_name:
-    :param function_name:
-    :param output_field:
-    :param alias:
-    :return:
+    # 获取子查询
+
+    ## 简介
+    - 主要用在进行`qs_ls.all().order_by().order_by(field_name).distinct(field_name)`后, 再进行`annotate`操作.
+    - 普通的`m.SubQuery`操作将在`distinct`后的`annotate`中报错!
+
+    ## 参考
+    - [django文档_1](https://django-orm-cookbook-zh-cn.readthedocs.io/zh_CN/latest/subquery.html)
+    - [django文档_2](https://docs.djangoproject.com/zh-hans/4.0/ref/models/expressions/)
+
+    :param my_model: 指定模型, 用以获取模型基本属性`meta`
+    :param field_name: 用来进行计算的字段名
+    :param function_name: 要在数据库中调用的函数名
+    :param output_field: 使用Query计算后, 输出的字段类型
+    :param alias: 计算后储存结果变量名, 默认为`tmp`
+    :return: 子查询类`MySubQuery`
     """
     base_model = get_base_model(my_model)
     meta = base_model._meta

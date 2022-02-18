@@ -6,6 +6,7 @@ from .django import BaseListView, APIResponse
 from django.db.models import Q
 from django.db.models import QuerySet
 import json
+from .django import get_base_model, get_base_queryset
 
 
 class SingleConditionSearch:
@@ -205,6 +206,80 @@ class MultipleConditionSearch:
         return self.queryset
 
 
+class AddQ:
+    """
+    根据前端的Q_add_ls参数, 生成QS, 用以查询结果.
+
+    - 样例数据:
+     "Q_add_ls": [
+        {
+            "add_logic": "and",
+            "Q_ls": [
+                {
+                    "add_logic": "and",
+                    "search_field": "title",
+                    "search_keywords": "中国",
+                    "accuracy": "0"
+                },
+                {
+                    "add_logic": "or",
+                    "search_field": "title",
+                    "search_keywords": "百年",
+                    "accuracy": "0"
+                }
+            ]
+        },
+        {
+            "add_logic": "and",
+            "Q_ls": [
+                {
+                "add_logic": "and",
+                "search_field": "publication_date",
+                "search_keywords": "2020-01-01",
+                "accuracy": "gte"
+                },
+                {
+                    "add_logic": "and",
+                    "search_field": "publication_date",
+                    "search_keywords": "2021-01-01",
+                    "accuracy": "lte"
+                }
+            ]
+        }
+    ]
+    """
+
+    def __init__(self, Q_add_ls):
+        self.Q_add_ls = Q_add_ls
+        self.QS = Q()
+
+    def _get_QS_i(self, Q_add_i):
+        """
+        将Q_add_ls拆分为Q_ls后, 获得对应的qs
+        """
+        mcs = MultipleConditionSearch('', condition_ls=Q_add_i)
+        qs = mcs.add_multiple_conditions()
+        return qs
+
+    def get_QS(self):
+
+        for Q_add_i in self.Q_add_ls:
+            add_logic = Q_add_i.get('add_logic')
+            qs_ls = Q_add_i.get('Q_ls')
+            qs = self._get_QS_i(qs_ls)
+
+            if add_logic == 'and':
+                self.QS.add(qs, Q.AND)
+            elif add_logic == 'or':
+                self.QS.add(qs, Q.OR)
+            elif add_logic == 'not':
+                self.QS.add(~qs, Q.AND)
+            else:
+                raise ValueError(f'add_logic must choice in [and, or, not]!')
+
+        return self.QS
+
+
 class AdvancedSearchView(BaseListView):
     """
     高级检索
@@ -225,21 +300,31 @@ class AdvancedSearchView(BaseListView):
             }
         ]
     """
+    _name = 'AdvancedSearchView'
+    
     queryset = None
     serializer_class = None
     search_condition_ls = None
 
     def post(self, request, *args, **kwargs):
+        self._post_type = post_type = 'list'
         ret, status, msg = self.get_list_ret(request, *args, **kwargs)
         return APIResponse(ret, status=status, msg=msg)
 
     def get_queryset(self):
-        if self.search_condition_ls is None:
-            search_condition_ls = self.request.data.get('search_condition_ls', [])
-            if not search_condition_ls:
-                search_condition_ls = self.request.query_params.get('search_condition_ls', [])
-                if isinstance(search_condition_ls, str):
-                    search_condition_ls = json.loads(search_condition_ls)
+        query_dc = self.get_request_data()
+        Q_add_ls = query_dc.get('Q_add_ls')
+        if Q_add_ls:
+            original_qs_ls = get_base_queryset(super().get_queryset())
+            add_q = AddQ(Q_add_ls=Q_add_ls)
+            qs = add_q.get_QS()
+            self.queryset = original_qs_ls.filter(qs)
+            return self.queryset
+
+        search_condition_ls = query_dc.get('search_condition_ls', [])
+        if search_condition_ls:
+            if isinstance(search_condition_ls, str):
+                search_condition_ls = json.loads(search_condition_ls)
         else:
             search_condition_ls = self.search_condition_ls
 
@@ -251,5 +336,7 @@ class AdvancedSearchView(BaseListView):
             self.queryset = super().get_queryset()
 
         return self.queryset
+
+
 
 
