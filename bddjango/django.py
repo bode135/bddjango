@@ -1023,3 +1023,64 @@ def get_user_ip(request):
         user_ip = context["request"].META['REMOTE_ADDR']
     return user_ip
 
+
+def update_none_to_zero_by_field_name(qs_ls, field_name):
+    """
+    将qs_ls中field_name字段的None改为0
+    """
+    filter_dc = {
+        f'{field_name}__isnull': True
+    }
+    update_dc = {
+        field_name: 0
+    }
+    qs_ls.filter(**filter_dc).update(**update_dc)
+
+
+def get_df_by_freq_and_year(
+        queryset,
+        frequency_cname=None,
+        aggregate_method_name='Sum',
+        output_col_name=None,
+        year_field_name='year',
+        complete_year_ls=False,
+        year_range_ls=None,
+):
+    """
+    获取加权的年份分布图
+
+    * 这个比较快
+
+    - aggregate_method_name, frequency_cname: 用来aggregate的方法和字段
+    - complete_year_ls: 补全中间年份
+    - output_col_name: 输出列名
+    - year_field_name: 年份字段名
+    """
+    year_qsv_ls = queryset.values(year_field_name).distinct(year_field_name).order_by(year_field_name)
+    year_ls = [dc.get(year_field_name) for dc in year_qsv_ls]
+    assert hasattr(m, aggregate_method_name), f'django.db.models不存在[{aggregate_method_name}]方法!'
+    aggregate_method = getattr(m, aggregate_method_name)
+
+    output_col_name = output_col_name if output_col_name  else frequency_cname
+
+    if complete_year_ls:
+        if year_range_ls:
+            year_min, year_max = year_range_ls
+        else:
+            year_min, year_max = min(year_ls), max(year_ls)
+        year_range = list(range(year_min, year_max + 1))
+    else:
+        year_range = year_ls
+
+    year_distribution_dc_ls = []
+    for year in year_range:
+        aggregate_dc = {'tmp': aggregate_method(frequency_cname)}
+        value = queryset.filter(year=year).aggregate(**aggregate_dc)
+        value = 0 if value is None or value.get('tmp') is None else value.get('tmp')
+
+        year_distribution_dc = {
+            year_field_name: year,
+            output_col_name: value,
+        }
+        year_distribution_dc_ls.append(year_distribution_dc)
+    return year_distribution_dc_ls

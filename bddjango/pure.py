@@ -8,19 +8,23 @@ import pandas as pd
 
 def version():
     """
-    * 2021/2/17
+    * 2021/2/21
 
-    党史项目结束, 海南项目开始
+    # 党史项目结束, 海南项目开始
 
-    ## 修改部分 (未上传)
+    ## 修改部分
         - 修复了AdvancedSearchView post时page_size失效的问题
         - 对`list`的数据返回格式进行了优化, 避免了自定义page_size时无效的bug
         - `BaseListView`增加`set_request_data`方法
         - 优化`distince_type_ls`和o`rder_type_ls`的错误提示
         - `AdvancedSearchView`增加`Q_add_ls`检索方法
         - `.pure`增加`convert_query_parameter_to_bool`函数
+        - '.django'增加`update_none_to_zero_by_field_name`函数
+        - 增加`AliasField`绑定字段方法
+        - 按年份分布的统计方法`get_df_by_freq_and_year`
+
     """
-    v = "2.1.1"     # 正式版: 2.1.0
+    v = "2.1.2"     # 正式版: 2.1.0
     return v
 
 
@@ -141,13 +145,16 @@ def conv_df_to_serializer_data(df) -> list:
     return ret_ls
 
 
-def convert_query_parameter_to_bool(query_parameter):
+def convert_query_parameter_to_bool(query_parameter, false_ls=None):
     """
     将请求参数转化为`bool`类型
 
     :param query_parameter: 请求参数
+    :param false_ls: 将转换为`false`的值
     :return: bool, true or false
     """
-    ret = query_parameter not in ['0', 0, None, 'None', 'Null', [], {}]
+    if not false_ls:
+        false_ls = ['0', 0, None, 'None', 'Null', [], {}, 'False', 'false', '', 'null']
+    ret = query_parameter not in false_ls
     return ret
 
