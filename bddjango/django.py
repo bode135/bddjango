@@ -37,6 +37,7 @@ import json
 from rest_framework import serializers as s
 from django.http.request import QueryDict
 from .auth import get_my_api_error, my_api_assert_function
+import re
 
 
 def get_list(query_dc, key):
@@ -410,23 +411,25 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             if order_type:
                 order_type_ls = order_type
 
-        if order_type_ls:
-            # print('distinct_field_ls', distinct_field_ls, '--- order_type_ls', order_type_ls)
-            if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
-                d_len = len(distinct_field_ls)
-                my_api_assert_function(order_type_ls[:d_len] == distinct_field_ls, 'order_type_ls必须包含distinct_field_ls, 且需要将distinct_field_ls置于最前方!')
-
-            try:
-                self.queryset = order_by_order_type_ls(self.queryset, order_type_ls)
-            except ValueError as e:
-                msg = f'参数order_type_ls指定的排序字段[{order_type_ls}]排序失败! 更多信息: {str(e)}'
-                raise ValueError(msg)
+        qs_ls = self.queryset
 
         # distinct操作
         if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
             assert isinstance(distinct_field_ls, (list, tuple)), 'distinct_field_ls因为list或者tuple!'
-            self.queryset = self.queryset.distinct(*distinct_field_ls)
+            qs_ls = qs_ls.order_by(*distinct_field_ls).distinct(*distinct_field_ls)      # bug: distinct_field_ls 后的字段无法排序
 
+        # order_by操作
+        if order_type_ls:
+            if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
+                qs_ls = self.queryset.filter(pk__in=qs_ls.values('pk'))
+
+            try:
+                qs_ls = order_by_order_type_ls(qs_ls, order_type_ls)
+            except ValueError as e:
+                msg = f'参数order_type_ls指定的排序字段[{order_type_ls}]排序失败! 更多信息: {str(e)}'
+                raise ValueError(msg)
+
+        self.queryset = qs_ls
         return self.queryset
 
     def get_list_queryset(self):
@@ -755,6 +758,11 @@ def old_get_model_max_id_in_db(model):
     curr_id = row[0][0]
     ret = 0 if curr_id is None else curr_id
     cursor.close()
+    return ret
+
+
+def get_abs_order_type_ls(order_type_ls):
+    ret = [re.sub(r'^-', '', field_name) for field_name in order_type_ls]
     return ret
 
 

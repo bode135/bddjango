@@ -22,9 +22,9 @@ def version():
         - '.django'增加`update_none_to_zero_by_field_name`函数
         - 增加`AliasField`绑定字段方法
         - 按年份分布的统计方法`get_df_by_freq_and_year`
-
+        - 修复distinct_field_ls和order_type_ls的冲突
     """
-    v = "2.1.2"     # 正式版: 2.1.0
+    v = "2.1.4"     # 正式版: 2.1.3
     return v
 
 
