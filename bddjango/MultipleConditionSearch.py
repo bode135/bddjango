@@ -96,7 +96,7 @@ class SingleConditionSearch:
 
         suffix = get_suffix_by_accuracy(accuracy)
         if suffix:
-            cmd = f'self.qs = Q({search_field}__{suffix}="{search_keywords}")'
+            cmd = f'self.qs = Q({search_field}__{suffix}="{search_keywords}")'      # isnull时应转为bool! 待完善.
         else:
             cmd = f'self.qs = Q({search_field}="{search_keywords}")'
 
@@ -305,21 +305,29 @@ class AdvancedSearchView(BaseListView):
     queryset = None
     serializer_class = None
     search_condition_ls = None
+    Q_ls = None
 
     def post(self, request, *args, **kwargs):
         self._post_type = post_type = 'list'
         ret, status, msg = self.get_list_ret(request, *args, **kwargs)
         return APIResponse(ret, status=status, msg=msg)
 
+    def get_Q_add_ls(self):
+        key = 'Q_add_ls'
+        ret = self._get_key_from_query_dc_or_self(key)
+        return ret
+
     def get_queryset(self):
         query_dc = self.get_request_data()
-        Q_add_ls = query_dc.get('Q_add_ls')
+        Q_add_ls = self.get_Q_add_ls()
         if Q_add_ls:
-            original_qs_ls = get_base_queryset(super().get_queryset())
+            sp_qs_ls = super().get_queryset()
             add_q = AddQ(Q_add_ls=Q_add_ls)
             qs = add_q.get_QS()
-            self.queryset = original_qs_ls.filter(qs)
-            return self.queryset
+            if not isinstance(sp_qs_ls, QuerySet):
+                sp_qs_ls = get_base_queryset(sp_qs_ls)
+            ret = sp_qs_ls.filter(qs)
+            return ret
 
         search_condition_ls = query_dc.get('search_condition_ls', [])
         if search_condition_ls:

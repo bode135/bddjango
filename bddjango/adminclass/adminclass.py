@@ -45,7 +45,7 @@ def _remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
     tt = Time()
 
     tt.sleep(1)
-    print('*************** 开始清理缓存 *************')
+    print(f'*************** 开始清理缓存 {tempdir} *************')
     for fpath in fpath_ls:
         i = 0
         tt.__init__()
@@ -70,7 +70,7 @@ def _remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
     return True
 
 
-def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
+def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5, desc='---'):
     """
     当大于MAX_TEMPS时启动临时文件清理程序
     """
@@ -81,7 +81,8 @@ def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5):
         t1.start()
         return True
     else:
-        print(f'...缓存还足够, 不用清理... 缓存文件: {temps}/{MAX_TEMPS}')
+
+        print(f'{desc} --- 缓存还足够, 不用清理... 缓存文件: {temps}/{MAX_TEMPS}, tempdir: {tempdir}')
         return False
 
 

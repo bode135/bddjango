@@ -215,7 +215,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             GET /api/index/BaseList/5/
     """
     
-    _name = 'BaseListView'
+    _name = 'BaseListView'      # 这个在自动生成wiki时要用到
     
     renderer_classes = (StateMsgResultJSONRenderer,)
 
@@ -225,6 +225,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     order_type_ls = []
     distinct_field_ls = []
+    only_get_distinct_field = False     # 仅返回distinct指定的字段
 
     serializer_class = None
     auto_generate_serializer_class = False
@@ -301,17 +302,41 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     def get_serializer_class(self):
         if self.method == 'retrieve':
-            self.serializer_class = self.retrieve_serializer_class or self.serializer_class
+            ret = self.retrieve_serializer_class or self.serializer_class
         elif self.method == 'list':
-            self.serializer_class = self.list_serializer_class or self.serializer_class
+            ret = self.list_serializer_class or self.serializer_class
         else:
-            self.serializer_class = self.retrieve_serializer_class or self.serializer_class or self.list_serializer_class
+            ret = self.retrieve_serializer_class or self.serializer_class or self.list_serializer_class
 
         if self.auto_generate_serializer_class and self.serializer_class is None:
-            self.serializer_class = get_base_serializer(self.queryset, base_fields=self.base_fields)
+            ret = get_base_serializer(self.queryset, base_fields=self.get_base_fields())
 
-        assert self.serializer_class, '属性serializer_class不能为空!'
-        return self.serializer_class
+        # --- 仅获取distinct之后的字段
+        only_get_distinct_field = self.get_only_get_distinct_field()
+        if only_get_distinct_field:
+            distinct_field_ls = self.get_distinct_field_ls()
+            assert distinct_field_ls, '指定了only_get_distinct_field的同时必须指定distinct_field_ls!'
+            ret = get_base_serializer(self.queryset, distinct_field_ls)
+            return ret
+
+        assert ret, '返回的serializer_class不能为空!'
+        return ret
+
+    def get_only_get_distinct_field(self):
+        key = 'only_get_distinct_field'
+        value = self._get_key_from_query_dc_or_self(key)
+        ret = pure.convert_query_parameter_to_bool(value)
+        return ret
+
+    def get_distinct_field_ls(self):
+        key = 'distinct_field_ls'
+        ret = self._get_key_from_query_dc_or_self(key)
+        return ret
+
+    def get_base_fields(self):
+        key = 'base_fields'
+        ret = self._get_key_from_query_dc_or_self(key)
+        return ret
 
     def get_retrieve_ret(self, request: Request, *args, **kwargs):
         """
@@ -460,6 +485,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
             meta = base_model.objects.first()._meta
             field_names = [field.name for field in meta.fields]
+            field_names.append('pk')    # 将主键pk加进去作为过滤条件
             if self.queryset.count():
                 qs_i = self.queryset[0]
                 # 可能用annotate增加了注释字段, 所以要处理一下, 避免过滤出错
@@ -467,7 +493,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                     field_names = list(qs_i.keys())
 
             for fn in field_names:      # fn: field_name
-                if FILTER_ALL_FIELDS or fn in self.filter_fields:
+                if FILTER_ALL_FIELDS or fn in self.filter_fields or fn == 'pk':
                     if fn in query_dc:
                         value = query_dc.get(fn)
                         if value is not None and value != '':       # 默认为空字符串时, 将不作为过滤条件
@@ -485,7 +511,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         query_dc = self.get_request_data()
         page_size = query_dc.get('page_size', self.pagination_class.page_size)
         p = query_dc.get('p', 1)
-        resp, page_dc = paginate_qsls_to_dcls(self.queryset, self.get_serializer_class(), page=p, per_page=page_size)
+        context = self.get_serializer_context()
+        resp, page_dc = paginate_qsls_to_dcls(self.queryset, self.get_serializer_class(), page=p, per_page=page_size, context=context)
         ret = self._conv_data_format(resp, page_dc)
         return ret
 
@@ -525,6 +552,22 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             'page_dc': page_dc,
             'data': data,
         }
+        return ret
+
+    def _get_key_from_query_dc_or_self(self, key):
+        """
+        优先检索query_dc是否有key, 其次检索self是否有key这个属性
+        :param key: 变量名
+        :return:
+        """
+
+        query_dc = self.get_request_data()
+        data = query_dc.get(key)
+
+        ret_0 = getattr(self, key) if hasattr(self, key) else None
+        ret_1 = data if data else None
+
+        ret = ret_1 or ret_0
         return ret
 
 
@@ -582,7 +625,7 @@ def get_base_queryset(obj) -> QuerySet:
     return ret
 
 
-def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16):
+def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16, context=None):
     """
     * 手动分页函数
 
@@ -605,9 +648,12 @@ def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16):
 
     # --- 处理单个Model和多个Model的情况
     if serializer.__class__.__name__ == 'function':
-        dc_ls = serializer(page_obj)
+        try:
+            dc_ls = serializer(page_obj, context=context)
+        except Exception as e:
+            print('--- paginate_qsls_to_dcls错误!!! 2022/2/25')
     else:
-        dc_ls = serializer(page_obj, many=True).data
+        dc_ls = serializer(page_obj, many=True, context=context).data
     return dc_ls, page_dc
 
 
@@ -762,6 +808,8 @@ def old_get_model_max_id_in_db(model):
 
 
 def get_abs_order_type_ls(order_type_ls):
+    if isinstance(order_type_ls, str):
+        order_type_ls = [order_type_ls]
     ret = [re.sub(r'^-', '', field_name) for field_name in order_type_ls]
     return ret
 
@@ -903,6 +951,10 @@ class DecoratorBaseListView(BaseListView):
     def get(self, request, *args, **kwargs):
         return super().get(*args, **kwargs)
 
+    @api_decorator
+    def post(self, request, *args, **kwargs):
+        return super().post(*args, **kwargs)
+
 
 class DecoratorCompleteModelView(CompleteModelView):
     """
@@ -958,7 +1010,7 @@ def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerFi
     - [django文档_1](https://django-orm-cookbook-zh-cn.readthedocs.io/zh_CN/latest/subquery.html)
     - [django文档_2](https://docs.djangoproject.com/zh-hans/4.0/ref/models/expressions/)
 
-    :param my_model: 指定模型, 用以获取模型基本属性`meta`
+    :param my_model: 指定模型, 用以获取模型基本属性`meta`. 若为空, 则认为是annotate字段, 使用默认的field_name.
     :param field_name: 用来进行计算的字段名
     :param function_name: 要在数据库中调用的函数名
     :param output_field: 使用Query计算后, 输出的字段类型
@@ -972,6 +1024,7 @@ def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerFi
     db_column_names = [field.db_column if field.db_column else field.name for field in meta.fields]
     field_dc = dict(zip(field_names, db_column_names))
     db_column_name = field_dc.get(field_name)  # 获取字段在db中的列名
+    db_column_name = db_column_name if db_column_name else field_name       # 没有的话, 就用默认field_name
 
     alias = 'tmp' if not alias else alias
     my_template = f"(SELECT {function_name}({db_column_name}) FROM (%(subquery)s) {alias})"
@@ -979,7 +1032,7 @@ def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerFi
 
     class MySubQuery(m.Subquery):
         template = my_template
-        output_field = my_output_field()
+        output_field = my_output_field() if isinstance(my_output_field, type) else my_output_field
 
     return MySubQuery
 

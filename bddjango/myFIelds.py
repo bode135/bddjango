@@ -1,6 +1,7 @@
 """
 自定义字段类型
 """
+from django.db import models
 
 
 class AliasField(models.Field):
