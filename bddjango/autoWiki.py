@@ -104,406 +104,368 @@ class AutoWiki(APIView):
         print('--------------------------------------------------------------------------')
 
         """生成一个view的wiki文档"""
-        if 1:
-            """生成一个view的wiki文档"""
-            from bddjango.django import get_base_model
-            from django.forms import model_to_dict
-            from bddjango import show_json
-            from bddjango.django import get_field_type_in_py
-            from bddjango import create_dir_if_not_exist, create_file_if_not_exist
-            import re
-            import json
-            import os
 
-            tempdir_rootpath = 'tempdir'        # 临时输出文件的根目录
-            output_dirpath = os.path.join(tempdir_rootpath, 'output')       # 临时输出文件的子目录
-            create_dir_if_not_exist(tempdir_rootpath)
-            create_dir_if_not_exist(output_dirpath)
+        """生成一个view的wiki文档"""
+        from bddjango.django import get_base_model
+        from django.forms import model_to_dict
+        from bddjango import show_json
+        from bddjango.django import get_field_type_in_py
+        from bddjango import create_dir_if_not_exist, create_file_if_not_exist
+        import re
+        import json
+        import os
 
-            path_of_jinja2_template = request_data.get('path_of_jinja2_template', self.path_of_jinja2_template)
+        tempdir_rootpath = 'tempdir'        # 临时输出文件的根目录
+        output_dirpath = os.path.join(tempdir_rootpath, 'output')       # 临时输出文件的子目录
+        create_dir_if_not_exist(tempdir_rootpath)
+        create_dir_if_not_exist(output_dirpath)
 
-            for view_id in range(len(vs)):
-                # view_id = 0       # debug
-                # issubclass(v, BaseListView)
+        path_of_jinja2_template = request_data.get('path_of_jinja2_template', self.path_of_jinja2_template)
 
-                # --- 获取单个view的名称和实例
-                fv = vs[view_id]
-                f, v = fv       # view_class_name, view_class_instance
+        # region # --- 循环获取view的文档
 
-                # --- 输出文件的路径
-                output_f_suffix = '.txt'        # 使用`.md`打开太慢, `typora`会报错
-                # output_f_suffix = '.md' if path_of_jinja2_template else '.txt'
+        for view_id in range(len(vs)):
+            # view_id = 0       # debug
+            # issubclass(v, BaseListView)
 
-                output_fname = f + output_f_suffix
-                output_fname = os.path.join(output_dirpath, output_fname)
-                if os.path.exists(output_fname):
-                    os.remove(output_fname)
+            # --- 获取单个view的名称和实例
+            fv = vs[view_id]
+            f, v = fv       # view_class_name, view_class_instance
 
-                def output_to_file_and_prt(text='', output_fname=output_fname, show_in_console=False):
+            # --- 输出文件的路径
+            output_f_suffix = '.txt'        # 使用`.md`打开太慢, `typora`会报错
+            # output_f_suffix = '.md' if path_of_jinja2_template else '.txt'
 
-                    output_file = open(output_fname, 'a+', encoding='utf-8')
+            output_fname = f + output_f_suffix
+            output_fname = os.path.join(output_dirpath, output_fname)
+            if os.path.exists(output_fname):
+                os.remove(output_fname)
 
-                    if show_in_console:
-                        print(text)
-                    print(text, file=output_file)
-                    output_file.close()
+            def output_to_file_and_prt(text='', output_fname=output_fname, show_in_console=False):
 
-                # --- 开始写入
+                output_file = open(output_fname, 'a+', encoding='utf-8')
 
-                output_to_file_and_prt('****************')
-                res_context_dc['introduction'] = v.__doc__      # context: 简介
-                output_to_file_and_prt(res_context_dc['introduction'])
+                if show_in_console:
+                    print(text)
+                print(text, file=output_file)
+                output_file.close()
 
-                output_to_file_and_prt('****************')
-                output_to_file_and_prt()
+            # --- 开始写入
 
-                output_to_file_and_prt(f'\n=======  {view_id}  =========  \n')
-                res_context_dc['view_id'] = str(view_id)  # context: view_id
+            output_to_file_and_prt('****************')
+            res_context_dc['introduction'] = v.__doc__      # context: 简介
+            output_to_file_and_prt(res_context_dc['introduction'])
 
-                view_class_name, view_class_instance = f, v
-                output_to_file_and_prt(f'---, view_class_name: [{view_class_name}], view_class_instance: [{view_class_instance}]')
-                res_context_dc['view_class_name'] = str(view_class_name)     # context: view_class_name
-                res_context_dc['view_class_instance'] = str(view_class_instance)     # context: view_class_instance
+            output_to_file_and_prt('****************')
+            output_to_file_and_prt()
 
-                output_to_file_and_prt()
+            output_to_file_and_prt(f'\n=======  {view_id}  =========  \n')
+            res_context_dc['view_id'] = str(view_id)  # context: view_id
 
-                # --- 获取model和meta
-                md = get_base_model(v.queryset)
-                meta = md._meta
+            view_class_name, view_class_instance = f, v
+            output_to_file_and_prt(f'---, view_class_name: [{view_class_name}], view_class_instance: [{view_class_instance}]')
+            res_context_dc['view_class_name'] = str(view_class_name)     # context: view_class_name
+            res_context_dc['view_class_instance'] = str(view_class_instance)     # context: view_class_instance
 
-                url = f'/api/{meta.app_label}/{f}/'
+            output_to_file_and_prt()
 
-                output_to_file_and_prt('------------ 请求URL')
-                output_to_file_and_prt(f"`{url}`")
-                res_context_dc['request_url'] = str(url)     # context: 请求URL
+            # --- 获取model和meta
+            md = get_base_model(v.queryset)
+            meta = md._meta
 
-                output_to_file_and_prt()
+            url = f'/api/{meta.app_label}/{f}/'
 
-                if hasattr(v, 'filter_fields'):
-                    if v.filter_fields:
-                        output_to_file_and_prt('------------ 过滤字段')
-                        output_to_file_and_prt(f"`{v.filter_fields}`")
-                        res_context_dc['filter_fields'] = str(v.filter_fields)  # context: 请求URL
-                        output_to_file_and_prt()
+            output_to_file_and_prt('------------ 请求URL')
+            output_to_file_and_prt(f"`{url}`")
+            res_context_dc['request_url'] = str(url)     # context: 请求URL
 
-                # 确定serializer_class, 以免报错
-                v.serializer_class = v.serializer_class or v.retrieve_serializer_class or v.list_serializer_class
+            output_to_file_and_prt()
 
-                # --- 获取field_name和verbose_name
+            if hasattr(v, 'filter_fields'):
+                if v.filter_fields:
+                    output_to_file_and_prt('------------ 过滤字段')
+                    output_to_file_and_prt(f"`{v.filter_fields}`")
+                    res_context_dc['filter_fields'] = str(v.filter_fields)  # context: 请求URL
+                    output_to_file_and_prt()
 
-                field_names = [field.name for field in meta.fields]
-                verbose_names = [field.verbose_name for field in meta.fields]
-                can_be_empty_ls = [field.null and field.blank for field in meta.fields]
+            # 确定serializer_class, 以免报错
+            v.serializer_class = v.serializer_class or v.retrieve_serializer_class or v.list_serializer_class
 
-                field_type_ls = [get_field_type_in_py(md, field_name) for field_name in field_names]
-                # field_type = get_field_type_in_py(md, field_name)
+            # --- 获取field_name和verbose_name
 
-                if hasattr(v, 'auto_generate_serializer_class') and v.auto_generate_serializer_class:
-                    # from bddjango import get_base_serializer
-                    # v: BaseListView
-                    v__serializer_class = v().get_serializer_class()
-                    # v__queryset = get_base_model(v().get_queryset()).objects.all()
-                    # v__serializer_class(v__queryset, many=True).data
-                    # v__serializer_class.__dict__.get('_declared_fields')
-                    v.serializer_class = v__serializer_class
+            field_names = [field.name for field in meta.fields]
+            verbose_names = [field.verbose_name for field in meta.fields]
+            can_be_empty_ls = [field.null and field.blank for field in meta.fields]
 
-                # --- 把serializers里面的拓展字段通过__doc__转义后加进field_names
-                serializer_field_ls = v.serializer_class.__dict__.get('_declared_fields')
-                text = v.serializer_class.__doc__ or ""
+            field_type_ls = [get_field_type_in_py(md, field_name) for field_name in field_names]
+            # field_type = get_field_type_in_py(md, field_name)
 
-                for serializer_field_i, field_type_i in serializer_field_ls.items():
-                    reg = re.compile(f'^.*{serializer_field_i}: +(.*?) *$', re.M)
-                    match = reg.search(text)
-                    if match:
-                        verbose_name_i = match.group(1)
-                    else:
-                        verbose_name_i = serializer_field_i
+            if hasattr(v, 'auto_generate_serializer_class') and v.auto_generate_serializer_class:
+                # from bddjango import get_base_serializer
+                # v: BaseListView
+                v__serializer_class = v().get_serializer_class()
+                # v__queryset = get_base_model(v().get_queryset()).objects.all()
+                # v__serializer_class(v__queryset, many=True).data
+                # v__serializer_class.__dict__.get('_declared_fields')
+                v.serializer_class = v__serializer_class
 
-                    field_type_i = convert_db_field_type_to_python_type(str(field_type_i).replace('()', ''))
-                    print(serializer_field_i, verbose_name_i, field_type_i)
-                    can_be_empty_i = True
+            # --- 把serializers里面的拓展字段通过__doc__转义后加进field_names
+            serializer_field_ls = v.serializer_class.__dict__.get('_declared_fields')
+            text = v.serializer_class.__doc__ or ""
 
-                    field_names.append(serializer_field_i)
-                    verbose_names.append(verbose_name_i)
-                    field_type_ls.append(field_type_i)
-                    can_be_empty_ls.append(can_be_empty_i)
-
-                # --- 获取serializer_class
-                serializer_class = v.serializer_class
-
-                if issubclass(v, BaseListView):
-                    if serializer_class is None:
-                        if v.list_serializer_class:
-                            serializer_class = v.list_serializer_class
-                        if v.retrieve_serializer_class:
-                            # 有限详情页的序列化器
-                            serializer_class = v.retrieve_serializer_class
-
-                # --- 示例字段
-                smeta = serializer_class.Meta
-                if hasattr(smeta, 'fields'):
-                    sf = serializer_class.Meta.fields
-                    if ret_all_fields is True or sf == '__all__':
-                        # sf = '__all__'
-                        sf = serializer_class.Meta.fields = field_names
+            for serializer_field_i, field_type_i in serializer_field_ls.items():
+                reg = re.compile(f'^.*{serializer_field_i}: +(.*?) *$', re.M)
+                match = reg.search(text)
+                if match:
+                    verbose_name_i = match.group(1)
                 else:
-                    sf = field_names.copy()
-                    exclude_ls = smeta.exclude
-                    if exclude_ls:
-                        for e in exclude_ls:
-                            sf.remove(e)
+                    verbose_name_i = serializer_field_i
 
+                field_type_i = convert_db_field_type_to_python_type(str(field_type_i).replace('()', ''))
+                print(serializer_field_i, verbose_name_i, field_type_i)
+                can_be_empty_i = True
+
+                field_names.append(serializer_field_i)
+                verbose_names.append(verbose_name_i)
+                field_type_ls.append(field_type_i)
+                can_be_empty_ls.append(can_be_empty_i)
+
+            # --- 获取serializer_class
+            serializer_class = v.serializer_class
+
+            if issubclass(v, BaseListView):
+                if serializer_class is None:
+                    if v.list_serializer_class:
+                        serializer_class = v.list_serializer_class
+                    if v.retrieve_serializer_class:
+                        # 有限详情页的序列化器
+                        serializer_class = v.retrieve_serializer_class
+
+            # --- 示例字段
+            smeta = serializer_class.Meta
+            if hasattr(smeta, 'fields'):
+                sf = serializer_class.Meta.fields
+                if ret_all_fields is True or sf == '__all__':
+                    # sf = '__all__'
+                    sf = serializer_class.Meta.fields = field_names
+            else:
+                sf = field_names.copy()
+                exclude_ls = smeta.exclude
+                if exclude_ls:
+                    for e in exclude_ls:
+                        sf.remove(e)
+
+            try:
+                # 直接调用view的get接口
+                result = v.as_view()(request._request).data.get('result')
+
+                if isinstance(result, dict):
+                    dc_ls = result.get('data')
+                elif isinstance(result, list):
+                    dc_ls = result
+                else:
+                    raise TypeError(f'result为未知的返回类型! {type(result)}')
+                dc_ls = dc_ls[:3]
+                if not dc_ls:
+                    raise ValueError('\n============== 返回的样例数据`example_data`为空! =============\n')
+
+            except Exception as e:
                 try:
-                    # 直接调用view的get接口
-                    result = v.as_view()(request._request).data.get('result')
-
-                    if isinstance(result, dict):
-                        dc_ls = result.get('data')
-                    elif isinstance(result, list):
-                        dc_ls = result
-                    else:
-                        raise TypeError(f'result为未知的返回类型! {type(result)}')
-                    dc_ls = dc_ls[:3]
-                    if not dc_ls:
-                        raise ValueError('\n============== 返回的样例数据`example_data`为空! =============\n')
-
-                except Exception as e:
+                    print('--- Error! 调用view方法失败, 尝试使用model方案... ', e)
+                    # --- 示例数据, 用model
+                    qs_ls = md.objects.all()[:3]
+                    # q0 = qs_ls[0]     # 单个数据
                     try:
-                        print('--- Error! 调用view方法失败, 尝试使用model方案... ', e)
-                        # --- 示例数据, 用model
-                        qs_ls = md.objects.all()[:3]
-                        # q0 = qs_ls[0]     # 单个数据
-                        try:
-                            dc_ls = serializer_class(qs_ls, many=True).data
-                        except Exception as e:
-                            print('--- Error! 序列化出错! 可能未携带annotate所需字段? 将自动生成基本序列化器! --- ' + str(e))
-                            serializer_class = get_base_serializer(qs_ls)
-                            dc_ls = serializer_class(qs_ls, many=True).data
-
-                        dc_ls = [dict(dc) for dc in dc_ls]      # 返回数据示例
+                        dc_ls = serializer_class(qs_ls, many=True).data
                     except Exception as e:
-                        print(f'========== 错误信息: view_class_name[{view_class_name}], view_class_instance[{v}]')
-                        raise e
+                        print('--- Error! 序列化出错! 可能未携带annotate所需字段? 将自动生成基本序列化器! --- ' + str(e))
+                        serializer_class = get_base_serializer(qs_ls)
+                        dc_ls = serializer_class(qs_ls, many=True).data
 
-                # -- 简化过长的字段
-                for dc in dc_ls:
-                    for k, v in dc.items():
-                        if isinstance(v, str):
-                            if len(v) > MAX_LEN:
-                                dc[k] = v[:MAX_LEN] + '...略'
-                    print(dc)
+                    dc_ls = [dict(dc) for dc in dc_ls]      # 返回数据示例
+                except Exception as e:
+                    print(f'========== 错误信息: view_class_name[{view_class_name}], view_class_instance[{v}]')
+                    raise e
 
-                output_to_file_and_prt('---------- 示例数据')
-                example_data = json.dumps(dc_ls, sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
-                output_to_file_and_prt(example_data)
-                res_context_dc['example_data'] = str(example_data)  # context: 示例数据
-                output_to_file_and_prt()
+            # -- 简化过长的字段
+            for dc in dc_ls:
+                for k, v in dc.items():
+                    if isinstance(v, str):
+                        if len(v) > MAX_LEN:
+                            dc[k] = v[:MAX_LEN] + '...略'
+                print(dc)
 
-                # --- 参数说明
-                print(field_names, verbose_names)
+            output_to_file_and_prt('---------- 示例数据')
+            example_data = json.dumps(dc_ls, sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
+            output_to_file_and_prt(example_data)
+            res_context_dc['example_data'] = str(example_data)  # context: 示例数据
+            output_to_file_and_prt()
 
-                if ADD_CAN_BE_EMPTY:
-                    ss = "| 类型 | 字段名 | 说明 | 能否为空 |\n| --- | --- | --- | --- |\n"
-                else:
-                    ss = "| 类型 | 字段名 | 说明 |\n| --- | --- | --- |\n"
+            # --- 参数说明
+            print(field_names, verbose_names)
 
-                for field_name, verbose_name, can_be_empty, field_type in zip(field_names, verbose_names, can_be_empty_ls, field_type_ls):
-                    print(field_name, verbose_name, can_be_empty)
+            if ADD_CAN_BE_EMPTY:
+                ss = "| 类型 | 字段名 | 说明 | 能否为空 |\n| --- | --- | --- | --- |\n"
+            else:
+                ss = "| 类型 | 字段名 | 说明 |\n| --- | --- | --- |\n"
 
-                    si = ''
-                    if sf == '__all__' or field_name in sf:
-                        # field_type = get_field_type_in_py(md, field_name)
-                        if ADD_CAN_BE_EMPTY:
-                            si = f'| {field_type} | {field_name} | {verbose_name} | {can_be_empty} |\n'
-                        else:
-                            si = f'| {field_type} | {field_name} | {verbose_name} |\n'
-                    ss += si
+            for field_name, verbose_name, can_be_empty, field_type in zip(field_names, verbose_names, can_be_empty_ls, field_type_ls):
+                print(field_name, verbose_name, can_be_empty)
 
-                output_to_file_and_prt('---------- 参数说明')
-                parameters_explain = ss
-                output_to_file_and_prt(parameters_explain)
-                res_context_dc['parameters_explain'] = str(parameters_explain)  # context: 参数说明
-                output_to_file_and_prt()
-
-                open_output_txt_file = request_data.get('open_output_txt_file', self.open_output_txt_file)
-
-                if convert_query_parameter_to_bool(open_output_txt_file):
-                    if convert_query_parameter_to_bool(path_of_jinja2_template):
-                        # abs_path = os.path.join(settings.BASE_DIR, 'authors/myTestTemplates.html')
-                        # path_of_jinja2_template = path_of_jinja2_template if os.path.exists(path_of_jinja2_template) else os.path.exists(os.path.join(settings.BASE_DIR, path_of_jinja2_template))
-                        path_of_jinja2_template = os.path.join(settings.BASE_DIR, path_of_jinja2_template)
-                        path_of_jinja2_template = path_of_jinja2_template.replace('/', '\\')
-                        my_api_assert_function(os.path.exists(path_of_jinja2_template), f'path_of_jinja2_template路径不存在![{path_of_jinja2_template}]')
-                        print('--- res_context_dc:', res_context_dc)
-
-                        # region # --- 解析`introduction`, 获取[标题, 简要描述, 请求url]等字段
-                        introduction = res_context_dc.get('introduction')
-                        if introduction:
-                            # --- 获取标题`introduction_title`
-                            reg = re.compile(r'^\n(.+?)\n')
-                            match = reg.search(introduction)
-                            if match:
-                                introduction_title = match.group(1).strip()
-                                introduction_title = re.sub(r'^#+ +', '', introduction_title)   # 去掉开头的`#`
-                                res_context_dc['introduction_title'] = introduction_title
-
-                            # --- 获取示例url`introduction_url`
-                            # introduction = """
-                            #     学者成果高级检索
-                            #     - 必须指定author_code, 因为是专家详情页
-                            #     - 使用post方法进行复合检索
-                            #     - 检索字段名为`Q_add_ls`
-                            #
-                            #     POST /api/authors/ThesisAdvancedSearch/
-                            #     {
-                            #         "order_type_ls": ["title", "id"],
-                            #         "distinct_field_ls": ["title"],
-                            #         "page_size": 3,
-                            #         "Q_add_ls": [
-                            #             {
-                            #                 "add_logic": "and",
-                            #                 "Q_ls": [
-                            #                     {
-                            #                         "add_logic": "and",
-                            #                         "search_field": "author_code",
-                            #                         "search_keywords": "29856",
-                            #                         "accuracy": "1"
-                            #                     },
-                            #                     {
-                            #                         "add_logic": "and",
-                            #                         "search_field": "title",
-                            #                         "search_keywords": "可持续",
-                            #                         "accuracy": "0"
-                            #                     }
-                            #                 ]
-                            #             },
-                            #             {
-                            #                 "add_logic": "and",
-                            #                 "Q_ls": [
-                            #                     {
-                            #                         "add_logic": "and",
-                            #                         "search_field": "published_date",
-                            #                         "search_keywords": "2019-02-10",
-                            #                         "accuracy": "gte"
-                            #                     },
-                            #                     {
-                            #                         "add_logic": "and",
-                            #                         "search_field": "published_date",
-                            #                         "search_keywords": "2019-04-01",
-                            #                         "accuracy": "lte"
-                            #                     }
-                            #                 ]
-                            #             }
-                            #         ]
-                            #     }
-                            #     """
-                            reg = re.compile(r'.*?/.+/.+/.*')
-                            match = reg.findall(introduction)
-                            if match:
-                                _introduction_url = []
-                                for m_i in match:
-                                    m_i = m_i.strip()
-                                    if 'POST' in m_i:
-                                        reg = re.compile(m_i + '.*?' + r'(\{.*\}).*$', re.S)      # 只能匹配POST后的一个大括号!
-                                        findall_ls = reg.findall(introduction)
-                                        if findall_ls:
-                                            findall_i = findall_ls[0]
-                                            try:
-                                                findall_str = json.dumps(json.loads(findall_i), sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
-                                            except Exception as e:
-                                                e_str = '****** POST请求携带的字典错误!' + str(e)
-                                                raise ValueError(e_str)
-                                            m_i += '\n' + findall_str
-                                    _introduction_url.append(m_i)
-                                introduction_url = '\n'.join(_introduction_url)
-                                res_context_dc['introduction_url'] = introduction_url
-
-                            reg = re.compile(r'\n( *?- .+)')
-                            match = reg.findall(introduction)
-                            # from bddjango import show_ls
-                            # show_ls(match)
-                            if match:
-                                _introduction_summary = []
-                                blank_ls = []
-                                for summary_i in match:
-                                    summary_i: str
-                                    m1 = re.match(r'^ *', summary_i)
-                                    blank_i = m1.span()[-1] if m1 else 0
-                                    blank_ls.append(blank_i)
-                                    _introduction_summary.append(summary_i)
-                                blank_min = min(blank_ls)       # 将所有简介缩进到最左侧, 不然会变成代码块!
-                                _introduction_summary = [s_i[blank_min:] for s_i in _introduction_summary]
-                                introduction_summary = '\n'.join(_introduction_summary)
-                            else:
-                                introduction_summary = '- ' + introduction_title
-                            res_context_dc['introduction_summary'] = introduction_summary
-                        # endregion
-
-                        # region # --- 分析属于那种请求类型`context_request_type`
-                        view_class_type = 'APIView'
-                        if hasattr(view_class_instance, '_name'):
-                            view_class_type = getattr(view_class_instance, '_name')
-
-                        context_request_type = '其它'
-                        if view_class_type == 'BaseListView':
-                            context_request_type = '基本查找类'
-                        elif view_class_type == 'CompleteModelView':
-                            context_request_type = '增删查改类'
-                        elif view_class_type == 'AdvancedSearchView':
-                            context_request_type = '高级检索类'
-                        res_context_dc['context_request_type'] = context_request_type
-                        # endregion
-
-                        # region # --- 开始填充jinja模板
-                        with open(path_of_jinja2_template, encoding='utf-8') as file_:
-                            template = Template(file_.read())
-
-                        # from jinja2 import PackageLoader, Environment, FileSystemLoader
-                        # env = Environment(loader=PackageLoader('python_project', 'templates'))  # 创建一个包加载器对象
-
-                        # env = Environment(loader=FileSystemLoader(app_name))  # 文件加载器, 可用`list_templates`方法查看存在哪些东西
-                        # os.path.exists(path_of_jinja2_template)
-                        # template = env.get_template(path_of_jinja2_template)
-                        content = template.render(**res_context_dc)
-                        with open(output_fname, 'w', encoding='utf-8') as f:
-                            f.write(content)
-                        # endregion
-
-                    # 获取output文件, 仅能获取一个view_class
-                    get_output_file = convert_query_parameter_to_bool(request_data.get('get_output_file'))
-                    if get_output_file:
-                        newFileName = output_fname
-                        with open(output_fname, 'rb') as f:
-                            response = HttpResponse(f.read(), content_type='application/txt')
-                            response['Content-Disposition'] = 'attachment; filename="{}"'.format(newFileName)
-                            response["Access-Control-Allow-Origin"] = '*'
-                            response["Server"] = '*'
-                            return response
+                si = ''
+                if sf == '__all__' or field_name in sf:
+                    # field_type = get_field_type_in_py(md, field_name)
+                    if ADD_CAN_BE_EMPTY:
+                        si = f'| {field_type} | {field_name} | {verbose_name} | {can_be_empty} |\n'
                     else:
-                        if sys.platform == 'win32':
-                            for i in range(5):
-                                tt.sleep(1)
-                                print('111')
-                                if os.path.exists(output_fname):
-                                    print('222')
-                                    os.startfile(output_fname)
-                                    tt.sleep(SLEEP_TIME)
-                                    # tt.sleep(10)
-                                    # os.remove(output_fname)
-                                    from bddjango.adminclass import remove_temp_file
-                                    remove_temp_file('tempdir', MAX_TEMPS=10)
-                                    break
-                        else:
-                            print('--- output_fname: ', output_fname)
-                            with open(output_fname, 'r') as f:
-                                print(f.read())
+                        si = f'| {field_type} | {field_name} | {verbose_name} |\n'
+                ss += si
 
-                                ret.append({output_fname: f.read()})
+            output_to_file_and_prt('---------- 参数说明')
+            parameters_explain = ss
+            output_to_file_and_prt(parameters_explain)
+            res_context_dc['parameters_explain'] = str(parameters_explain)  # context: 参数说明
+            output_to_file_and_prt()
+            # if convert_query_parameter_to_bool(open_output_txt_file):
+            if convert_query_parameter_to_bool(path_of_jinja2_template):
+                # abs_path = os.path.join(settings.BASE_DIR, 'authors/myTestTemplates.html')
+                # path_of_jinja2_template = path_of_jinja2_template if os.path.exists(path_of_jinja2_template) else os.path.exists(os.path.join(settings.BASE_DIR, path_of_jinja2_template))
+                path_of_jinja2_template = os.path.join(settings.BASE_DIR, path_of_jinja2_template)
+                path_of_jinja2_template = path_of_jinja2_template.replace('/', '\\')
+                my_api_assert_function(os.path.exists(path_of_jinja2_template), f'path_of_jinja2_template路径不存在![{path_of_jinja2_template}]')
+                print('--- res_context_dc:', res_context_dc)
 
-        ret_dc = {
-            'res_context_dc': res_context_dc
-        }
-        ret.append(ret_dc)
+                # region # --- 解析`introduction`, 获取[标题, 简要描述, 请求url]等字段
+                introduction = res_context_dc.get('introduction')
+                if introduction:
+                    # --- 获取标题`introduction_title`
+                    reg = re.compile(r'^\n(.+?)\n')
+                    match = reg.search(introduction)
+                    if match:
+                        introduction_title = match.group(1).strip()
+                        introduction_title = re.sub(r'^#+ +', '', introduction_title)   # 去掉开头的`#`
+                        res_context_dc['introduction_title'] = introduction_title
+
+                    # --- 获取示例url`introduction_url`
+                    reg = re.compile(r'.*?/.+/.+/.*')
+                    match = reg.findall(introduction)
+                    if match:
+                        _introduction_url = []
+                        for m_i in match:
+                            m_i = m_i.strip()
+                            if 'POST' in m_i:
+                                reg = re.compile(m_i + '.*?' + r'(\{.*\}).*$', re.S)      # 只能匹配POST后的一个大括号!
+                                findall_ls = reg.findall(introduction)
+                                if findall_ls:
+                                    findall_i = findall_ls[0]
+                                    try:
+                                        findall_str = json.dumps(json.loads(findall_i), sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
+                                    except Exception as e:
+                                        e_str = '****** POST请求携带的字典错误!' + str(e)
+                                        raise ValueError(e_str)
+                                    m_i += '\n' + findall_str
+                            _introduction_url.append(m_i)
+                        introduction_url = '\n'.join(_introduction_url)
+                        res_context_dc['introduction_url'] = introduction_url
+
+                    reg = re.compile(r'\n( *?- .+)')
+                    match = reg.findall(introduction)
+                    # from bddjango import show_ls
+                    # show_ls(match)
+                    if match:
+                        _introduction_summary = []
+                        blank_ls = []
+                        for summary_i in match:
+                            summary_i: str
+                            m1 = re.match(r'^ *', summary_i)
+                            blank_i = m1.span()[-1] if m1 else 0
+                            blank_ls.append(blank_i)
+                            _introduction_summary.append(summary_i)
+                        blank_min = min(blank_ls)       # 将所有简介缩进到最左侧, 不然会变成代码块!
+                        _introduction_summary = [s_i[blank_min:] for s_i in _introduction_summary]
+                        introduction_summary = '\n'.join(_introduction_summary)
+                    else:
+                        introduction_summary = '- ' + introduction_title
+                    res_context_dc['introduction_summary'] = introduction_summary
+                # endregion
+
+                # region # --- 分析属于那种请求类型`context_request_type`
+                view_class_type = 'APIView'
+                if hasattr(view_class_instance, '_name'):
+                    view_class_type = getattr(view_class_instance, '_name')
+
+
+                post_type_ls = getattr(view_class_instance, 'post_type_ls') if hasattr(view_class_instance, 'post_type_ls') else None
+
+                context_request_type = '其它'
+                if view_class_type == 'BaseListView':
+                    context_request_type = '基本查找类'
+                elif view_class_type == 'CompleteModelView':
+                    context_request_type = '增删查改类'
+                elif view_class_type == 'AdvancedSearchView':
+                    context_request_type = '高级检索类'
+                res_context_dc['context_request_type'] = context_request_type
+                res_context_dc['view_class_type'] = view_class_type
+                res_context_dc['post_type_ls'] = post_type_ls
+                # endregion
+
+                # region # --- 开始填充jinja模板
+                with open(path_of_jinja2_template, encoding='utf-8') as file_:
+                    template = Template(file_.read())
+
+                # from jinja2 import PackageLoader, Environment, FileSystemLoader
+                # env = Environment(loader=PackageLoader('python_project', 'templates'))  # 创建一个包加载器对象
+
+                # env = Environment(loader=FileSystemLoader(app_name))  # 文件加载器, 可用`list_templates`方法查看存在哪些东西
+                # os.path.exists(path_of_jinja2_template)
+                # template = env.get_template(path_of_jinja2_template)
+                content = template.render(**res_context_dc)
+                with open(output_fname, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                # endregion
+
+            # 获取output文件, 仅能获取一个view_class
+            get_output_file = convert_query_parameter_to_bool(request_data.get('get_output_file'))
+            if get_output_file:
+                newFileName = output_fname
+                with open(output_fname, 'rb') as f:
+                    response = HttpResponse(f.read(), content_type='application/txt')
+                    response['Content-Disposition'] = 'attachment; filename="{}"'.format(newFileName)
+                    response["Access-Control-Allow-Origin"] = '*'
+                    response["Server"] = '*'
+                    return response
+            else:
+                open_output_txt_file = request_data.get('open_output_txt_file', self.open_output_txt_file)
+                if sys.platform == 'win32' and convert_query_parameter_to_bool(open_output_txt_file):
+                    for i in range(5):
+                        tt.sleep(1)
+                        print('111')
+                        if os.path.exists(output_fname):
+                            print('222')
+                            os.startfile(output_fname)
+                            tt.sleep(SLEEP_TIME)
+                            # tt.sleep(10)
+                            # os.remove(output_fname)
+                            from bddjango.adminclass import remove_temp_file
+                            remove_temp_file('tempdir', MAX_TEMPS=10)
+                            break
+                else:
+                    print('--- output_fname: ', output_fname)
+                    with open(output_fname, 'r', encoding='utf-8') as f:
+                        # print(f.read())
+
+                        res_context_dc.update(
+                            {
+                                'output_fname': output_fname,
+                                'output_content': f.read(),
+                            }
+                        )
+            ret_dc = {
+                'res_context_dc': res_context_dc
+            }
+            ret.append(ret_dc)
+
+        # endregion
 
         # output_file.close()
         return APIResponse(ret, 200, 'ok')

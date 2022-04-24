@@ -7,6 +7,8 @@ from django.db.models import Q
 from django.db.models import QuerySet
 import json
 from .django import get_base_model, get_base_queryset
+from .django import my_api_assert_function
+from .django import conv_to_queryset
 
 
 class SingleConditionSearch:
@@ -285,65 +287,162 @@ class AdvancedSearchView(BaseListView):
     高级检索
 
     POST /api/index/AdvancedSearch
-    search_condition_ls = [
-            {
+    Q_add_ls = [
+        {
+            "add_logic": "and",
+            "Q_ls": [
+                {
+                    "add_logic": "and",
+                    "search_field": "title",
+                    "search_keywords": "中国",
+                    "accuracy": "0"
+                },
+                {
+                    "add_logic": "or",
+                    "search_field": "title",
+                    "search_keywords": "百年",
+                    "accuracy": "0"
+                }
+            ]
+        },
+        {
+            "add_logic": "and",
+            "Q_ls": [
+                {
                 "add_logic": "and",
-                "search_field": "prize_level",
-                "search_keywords": 1,
-                "accuracy": "0"
-            },
-            {
-                "add_logic": "and",
-                "search_field": "name",
-                "search_keywords": "博得",
-                "accuracy": "0"
-            }
-        ]
+                "search_field": "publication_date",
+                "search_keywords": "2020-01-01",
+                "accuracy": "gte"
+                },
+                {
+                    "add_logic": "and",
+                    "search_field": "publication_date",
+                    "search_keywords": "2021-01-01",
+                    "accuracy": "lte"
+                }
+            ]
+        }
+    ]
+
+    # 简单列表检索的配置参考
+    search_ls_dc = {
+        "private_cn_classification_2_alpha": ["C5", "C3", "C4"],
+    }
+
+    search_conf = {
+        "private_cn_classification_2_alpha": {
+            "add_logic_external": "and",
+            "add_logic_internal": "or",
+            "accuracy": 1
+        }
+    }
     """
     _name = 'AdvancedSearchView'
     
     queryset = None
     serializer_class = None
-    search_condition_ls = None
     Q_ls = None
 
+    # search_ls_dc的默认配置search_conf
+    search_conf = None
+    search_ls_dc = None
+    DEFAULT_CONF = {
+        'add_logic_external': 'and',        # list外部的合并逻辑
+        'add_logic_internal': 'or',         # list内部的合并逻辑
+        'accuracy': 1                       # 匹配模式
+    }
+
+    search_condition_ls = None
+
     def post(self, request, *args, **kwargs):
-        self._post_type = post_type = 'list'
+        self._post_type = 'list'
         ret, status, msg = self.get_list_ret(request, *args, **kwargs)
         return APIResponse(ret, status=status, msg=msg)
 
     def get_Q_add_ls(self):
         key = 'Q_add_ls'
-        ret = self._get_key_from_query_dc_or_self(key)
+        ret = self.get_key_from_query_dc_or_self(key, get_type='list')
+        return ret
+
+    def get_search_condition_ls(self):
+        key = 'search_condition_ls'
+        ret = self.get_key_from_query_dc_or_self(key, get_type='list')
         return ret
 
     def get_queryset(self):
         query_dc = self.get_request_data()
+        # ret = super().get_queryset()        # 默认返回所有
+        ret = conv_to_queryset(self.queryset)
+
+        search_ls_dc = self.get_key_from_query_dc_or_self('search_ls_dc')        # 将列表查询search_ls转换为Q_add_ls中的条件
         Q_add_ls = self.get_Q_add_ls()
-        if Q_add_ls:
-            sp_qs_ls = super().get_queryset()
+
+        if Q_add_ls or search_ls_dc:
+            # --- 将search_ls根据search_conf转化为Q_add_ls中的检索条件
+            if search_ls_dc:
+                if not Q_add_ls:
+                    Q_add_ls = []
+
+                search_conf = self.get_key_from_query_dc_or_self('search_conf')
+                default_conf = self.DEFAULT_CONF.copy()
+
+                for search_k, search_v in search_ls_dc.items():
+                    my_api_assert_function(isinstance(search_v, list), f'search_ls_dc中{search_k}的值应为list类型!')
+                    # print('~~~~~~~~~', search_k, search_v)
+                    if search_conf:
+                        conf_i = search_conf.get(search_k)
+                        if conf_i:
+                            default_conf.update(conf_i)
+                        else:
+                            self_search_conf = getattr(self, 'search_conf')
+                            if isinstance(self_search_conf, dict) and self_search_conf.get(search_k):
+                                conf_i = self_search_conf.get(search_k)
+                                default_conf.update(conf_i)
+                    # print(search_k, search_v, default_conf)
+
+                    new_Q_ls = []
+                    for v_i in search_v:
+                        dc = {
+                            "add_logic": default_conf.get('add_logic_internal'),
+                            "search_field": search_k,
+                            "search_keywords": v_i,
+                            "accuracy": default_conf.get('accuracy'),
+                        }
+                        new_Q_ls.append(dc)
+
+                    new_Q_dc = {
+                        "add_logic": default_conf.get('add_logic_external'),
+                        "Q_ls": new_Q_ls
+                    }
+                    Q_add_ls.append(new_Q_dc)
+
             add_q = AddQ(Q_add_ls=Q_add_ls)
             qs = add_q.get_QS()
-            if not isinstance(sp_qs_ls, QuerySet):
-                sp_qs_ls = get_base_queryset(sp_qs_ls)
-            ret = sp_qs_ls.filter(qs)
+            if not isinstance(ret, QuerySet):
+                ret = get_base_queryset(ret)
+            ret = ret.filter(qs)
             return ret
 
         search_condition_ls = query_dc.get('search_condition_ls', [])
         if search_condition_ls:
+            search_condition_ls = self.get_search_condition_ls()
+            # if search_condition_ls:
+            #     if isinstance(search_condition_ls, str):
+            #         search_condition_ls = json.loads(search_condition_ls)
+            # else:
+            #     search_condition_ls = self.search_condition_ls
+
             if isinstance(search_condition_ls, str):
                 search_condition_ls = json.loads(search_condition_ls)
-        else:
-            search_condition_ls = self.search_condition_ls
 
-        if search_condition_ls:
-            mcs = MultipleConditionSearch(self.queryset, search_condition_ls)
-            mcs.add_multiple_conditions()
-            self.queryset = mcs.get_queryset()
-        else:
-            self.queryset = super().get_queryset()
+            if search_condition_ls:
+                mcs = MultipleConditionSearch(self.queryset, search_condition_ls)
+                mcs.add_multiple_conditions()
+                ret = mcs.get_queryset()
+            else:
+                ret = super().get_queryset()
 
-        return self.queryset
+        return ret
 
 
 

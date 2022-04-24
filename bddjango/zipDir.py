@@ -32,7 +32,7 @@ def zipDir(dirpath, outFullName, remove_root_dir_path=None):
                 # fpath = path.replace(dirpath, '')
                 pattern = fr"""^{remove_root_dir_path.encode('unicode_escape').decode('ascii')}"""
                 fpath = re.sub(pattern, '', path)
-                print(path, '---', fpath, filenames)
+                # print(path, '---', fpath, filenames)
 
                 for filename in filenames:
                     # if fpath.startswith(remove_root_dir_path):
@@ -42,7 +42,7 @@ def zipDir(dirpath, outFullName, remove_root_dir_path=None):
                     #     fpath = re.sub(pattern, '', fpath)
                     #     # fpath = fpath[len(remove_root_dir_path):]
                     # fpath = re.sub(r'^' + remove_root_dir_path, '', fpath)
-                    print(os.path.join(path, filename), '------', os.path.join(fpath, filename))
+                    # print(os.path.join(path, filename), '------', os.path.join(fpath, filename))
                     zip.write(os.path.join(path, filename), os.path.join(fpath, filename))
 
     elif remove_root_dir_path == 1:

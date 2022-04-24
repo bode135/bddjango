@@ -7,7 +7,7 @@ which allows mixin classes to be composed in interesting ways.
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
-from .django import APIResponse, reset_db_sequence
+from .utils import APIResponse, reset_db_sequence
 from warnings import warn
 from rest_framework.mixins import CreateModelMixin, UpdateModelMixin, DestroyModelMixin
 
