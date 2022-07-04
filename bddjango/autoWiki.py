@@ -70,7 +70,8 @@ class AutoWiki(APIView):
 
         # --- 必填
         app_name = request_data.get('app_name')
-        assert app_name, 'app_name不能为空!'
+        # assert app_name, 'app_name不能为空!'
+        my_api_assert_function(app_name, 'app_name不能为空!')
 
         # --- 选填
         view_class_name = request_data.getlist('view_class_name')       # 可空
@@ -173,7 +174,7 @@ class AutoWiki(APIView):
             md = get_base_model(v.queryset)
             meta = md._meta
 
-            url = f'/api/{meta.app_label}/{f}/'
+            url = f'/api/{app_name}/{f}/'
 
             output_to_file_and_prt('------------ 请求URL')
             output_to_file_and_prt(f"`{url}`")
@@ -331,7 +332,11 @@ class AutoWiki(APIView):
                 # abs_path = os.path.join(settings.BASE_DIR, 'authors/myTestTemplates.html')
                 # path_of_jinja2_template = path_of_jinja2_template if os.path.exists(path_of_jinja2_template) else os.path.exists(os.path.join(settings.BASE_DIR, path_of_jinja2_template))
                 path_of_jinja2_template = os.path.join(settings.BASE_DIR, path_of_jinja2_template)
-                path_of_jinja2_template = path_of_jinja2_template.replace('/', '\\')
+                if sys.platform == 'win32':
+                    path_of_jinja2_template = path_of_jinja2_template.replace('/', '\\')
+                else:
+                    path_of_jinja2_template = path_of_jinja2_template.replace('\\', '/')
+
                 my_api_assert_function(os.path.exists(path_of_jinja2_template), f'path_of_jinja2_template路径不存在![{path_of_jinja2_template}]')
                 print('--- res_context_dc:', res_context_dc)
 
@@ -394,7 +399,6 @@ class AutoWiki(APIView):
                 if hasattr(view_class_instance, '_name'):
                     view_class_type = getattr(view_class_instance, '_name')
 
-
                 post_type_ls = getattr(view_class_instance, 'post_type_ls') if hasattr(view_class_instance, 'post_type_ls') else None
 
                 context_request_type = '其它'
@@ -436,13 +440,18 @@ class AutoWiki(APIView):
                     return response
             else:
                 open_output_txt_file = request_data.get('open_output_txt_file', self.open_output_txt_file)
-                if sys.platform == 'win32' and convert_query_parameter_to_bool(open_output_txt_file):
+                if sys.platform in ['win32', 'darwin'] and convert_query_parameter_to_bool(open_output_txt_file):
                     for i in range(5):
                         tt.sleep(1)
                         print('111')
                         if os.path.exists(output_fname):
                             print('222')
-                            os.startfile(output_fname)
+                            if sys.platform == 'win32':
+                                os.startfile(output_fname)
+                            elif sys.platform == 'darwin':
+                                os.system(f'open {output_fname}')
+                            else:
+                                my_api_assert_function(f'系统类型错误? sys.platform: {sys.platform}')
                             tt.sleep(SLEEP_TIME)
                             # tt.sleep(10)
                             # os.remove(output_fname)

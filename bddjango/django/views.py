@@ -31,7 +31,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     retrieve_serializer_class = None  # retrieve对应的serializer_class
     list_serializer_class = None  # list对应的serializer_class
 
-    retrieve_filter_field = None  # 详情页的查询字段名, 默认为 {{url}}/app/view/pk , 无需变动.
+    retrieve_filter_field = 'pk'  # 详情页的查询字段名, 默认为 {{url}}/app/view/pk , 可由前端指定.
 
     method = None  # 中间变量, 记录请求是什么类型, list/retrieve等
     _tmp = None  # 无意义, 用来处理数据
@@ -40,9 +40,10 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     post_type_ls = ["list", "retrieve", "bulk_list"]  # post请求方法
     create_unique = True  # 创建时是否允许重复
 
-    convert_to_bool_flag = 'bool__'                        # 将特定格式强制转换为布尔变量
+    convert_to_bool_flag = 'bool__'                       # 将特定格式强制转换为布尔变量, 如 `名字不为空: name__isnull=bool_0`
+    negative_flag = '!'                                   # filter_fields 条件取否时使用, 如: `id不等于1: !id=1`
 
-    def get(self, request: Request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
         """
         - 如果request携带pk参数, 则进行Retrieve操作, 否则进行List操作.
 
@@ -145,7 +146,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         ret = self.get_key_from_query_dc_or_self(key, get_type='list')
         return ret
 
-    def get_retrieve_ret(self, request: Request, *args, **kwargs):
+    def get_retrieve_ret(self, request, *args, **kwargs):
         """
         Retrieve操作
 
@@ -157,36 +158,43 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         try:
             ret = self.retrieve(request)
         except Exception as e:
-            # 这里有坑, 因为有可能返回的是已经自定义好了的APIException, 例如权限不足错误.
-            if not isinstance(e, APIException):
-                # 没找到的情况, 404 Not Found
-                ret = None
-                status = 404
-                msg = str(e)
-                # msg = 'RetrieveError__' + str(e)
-            else:
-                raise e
+            # # 这里有坑, 因为有可能返回的是已经自定义好了的APIException, 例如权限不足错误.
+            # if not isinstance(e, APIException):
+            #     # 没找到的情况, 404 Not Found
+            #     ret = None
+            #     status = 404
+            #     msg = str(e)
+            #     my_api_assert_function(ret, msg, status)
+            # else:
+            raise e
 
         return ret, status, msg
 
     def get_object(self):
         """retrieve时, object的获取"""
-        retrieve_filter_field = self.retrieve_filter_field if self.retrieve_filter_field else 'id'
+        retrieve_filter_field = self.get_key_from_query_dc_or_self('retrieve_filter_field')
 
-        queryset = self.filter_queryset(self.get_queryset())
         pk = self.request.parser_context.get('kwargs').get('pk')
-        queryset = get_base_model(queryset).objects.all()
+        dc = {retrieve_filter_field: pk}
+        queryset = self.filter_queryset(self.get_queryset())
+        # queryset = queryset.filter(Q(**dc))
+        if isinstance(queryset, QuerySet):
+            queryset = queryset.filter(Q(**dc))
+        else:
+            queryset = queryset.objects.filter(Q(**dc))
+        # print(get_executable_sql(queryset))
 
-        cmd = f'self._tmp=Q({retrieve_filter_field}={pk})'
-        exec(cmd)
+        if queryset.count() != 1:
+            if queryset.count() > 1:
+                my_api_assert_function(False, f'检索结果不唯一!')
+            else:
+                my_api_assert_function(False, f'未检索到{dc}对应的内容!')
 
-        queryset = queryset.filter(self._tmp)
-        assert queryset.count() == 1, f'__{status.HTTP_404_NOT_FOUND}__: Error! 查询结果的数量应该等于1, 然而实际等于{queryset.count()}.'
         obj = queryset[0]
         self.check_object_permissions(self.request, obj)
         return obj
 
-    def get_list_ret(self, request: Request, *args, **kwargs):
+    def get_list_ret(self, request, *args, **kwargs):
         """
         List操作
         """
@@ -207,9 +215,11 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             ret = self.list(request)
         except Exception as e:
             # 页码无效的情况, 404 Not Found
-            ret = None
-            status = 404
-            msg = str(e)
+            raise e
+            # ret = None
+            # my_api_assert_function(ret, f'List error! --- {e}', 404)
+            # status = 404
+            # msg = str(e)
         return ret, status, msg
 
     def get_request_data(self) -> dict:
@@ -300,17 +310,32 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             many_to_many_field_names = [field.name for field in meta.many_to_many]
             if many_to_many_field_names:
                 field_names.extend(many_to_many_field_names)
-            field_names.append('pk')  # 将主键pk加进去作为过滤条件
             if self.queryset.count():
                 qs_i = self.queryset[0]
+                if isinstance(qs_i, dict):
+                    new_names = list(qs_i.keys())
+                else:
+                    new_dc: dict = qs_i.__dict__.copy()
+                    new_dc.pop('_state')
+                    new_names = list(new_dc.keys())
+
                 # 可能用annotate增加了注释字段, 所以要处理一下, 避免过滤出错
-                if hasattr(qs_i, 'keys') and len(qs_i.keys()) > len(field_names):
-                    field_names = list(qs_i.keys())
+                for new_name in new_names:
+                    if new_name not in field_names:
+                        field_names.append(new_name)
+
+            field_names.append('pk')  # 将主键pk加进去作为过滤条件
 
             for fn, value in query_dc.items():
                 filter_flag = False     # 是否过滤
+                negative_flag = False   # 是否取否
 
                 if fn:
+                    fn: str
+                    if fn.startswith(self.negative_flag):
+                        fn = fn[1:]
+                        negative_flag = True
+
                     if f'__' in fn:
                         _fn = fn.split('__')[0]
                         if _fn in field_names or fn in field_names:
@@ -323,25 +348,29 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                 if filter_flag:
                     if value is not None and value != '':  # 默认为空字符串时, 将不作为过滤条件
                         # print(fn, value)
-
                         convert_to_bool_flag = self.convert_to_bool_flag
                         if value.startswith(convert_to_bool_flag):
                             value = pure.convert_query_parameter_to_bool(value[len(convert_to_bool_flag):])
 
                         dc = {fn: value}
-                        self.queryset = self.queryset.filter(**dc)
+                        if negative_flag:
+                            self.queryset = self.queryset.exclude(**dc)
+                        else:
+                            self.queryset = self.queryset.filter(**dc)
 
         return self.queryset
 
     def _get_list_queryset(self):  # 兼容问题
         return self.get_list_queryset()
 
-    def list(self, request: Request, *args, **kwargs):
+    def list(self, request, *args, **kwargs):
         query_dc = self.get_request_data()
         page_size = query_dc.get('page_size', self.pagination_class.page_size)
         p = query_dc.get('p', 1)
         context = self.get_serializer_context()
-        resp, page_dc = paginate_qsls_to_dcls(self.queryset, self.get_serializer_class(), page=p, per_page=page_size,
+
+        serializer_class = self.get_serializer_class()
+        resp, page_dc = paginate_qsls_to_dcls(self.queryset, serializer_class, page=p, per_page=page_size,
                                               context=context)
         ret = self._conv_data_format(resp, page_dc)
         return ret
@@ -364,18 +393,23 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         """
 
         query_dc = self.get_request_data()
+        ret_0 = getattr(self, key) if hasattr(self, key) else None
 
         if get_type == 'list':
             data = get_list(query_dc, key)
         elif get_type == 'bool':
-            data = pure.convert_query_parameter_to_bool(query_dc.get(key))
+            value = query_dc.get(key)
+            if value is not None:
+                data = pure.convert_query_parameter_to_bool(value)
+                if data is False:
+                    return data
+            else:
+                return ret_0
         else:
             data = query_dc.get(key)
 
         # 让request携带的数据可以覆盖自身的key值
-        ret_0 = getattr(self, key) if hasattr(self, key) else None
         ret_1 = data if data else None
-
         ret = ret_1 or ret_0
         return ret
 
@@ -437,11 +471,18 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
     _post_type = None
     create_unique = True        # 创建时是否允许重复
 
-    def post(self, request, *args, **kwargs):
-        """增"""
-        post_type = request.data.get('post_type', 'create')
+    def get_post_type(self):
+        post_type = self.request.data.get('post_type', 'create')
         self._post_type = post_type
         my_api_assert_function(not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}")
+        return post_type
+
+    def post(self, request, *args, **kwargs):
+        """增"""
+        post_type = self.get_post_type()
+        # post_type = request.data.get('post_type', 'create')
+        # self._post_type = post_type
+        # my_api_assert_function(not post_type or post_type in self.post_type_ls, f"操作类型post_type指定错误! 取值范围: {self.post_type_ls}")
 
         if post_type == 'create':
             return self.create(request, *args, **kwargs)

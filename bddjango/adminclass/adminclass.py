@@ -20,6 +20,7 @@ from django.utils.http import urlquote
 
 from .. import get_model_max_id_in_db
 from .. import reset_db_sequence
+from ..pure import remove_temp_file
 
 import shutil
 # --- 初始化环境 ---
@@ -32,111 +33,7 @@ import datetime as dt
 from bdtime import tt
 import time
 import pandas as pd
-
-
-def _remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5, desc='---', remain_rows=None, option_model='getatime', quiet=False):
-    """
-    清理缓存, 清空tempdir下的所有文件
-    :param tempdir: 文件路径
-    :param MAX_TEMPS: 最多缓存文件数量
-    :param remain_rows: 最清理时留下的缓存文件数量, 如空, 则保留1/3
-    :param option_model: 操作模式, os.path的[getatime, getctime, getmtime]函数
-
-    # :param MAX_SPACE: 最大缓存文件空间
-    """
-    fpath_ls = os.listdir(tempdir)
-    temps = len(fpath_ls)
-
-    if temps < MAX_TEMPS:
-        if not quiet:
-            print(f'...缓存还足够, 不用清理... 缓存容量: {temps}/{MAX_TEMPS}')
-        return False
-
-    # --- 按option_model选择的时间函数来清理缓存文件
-    if option_model in ['getatime', 'getctime', 'getmtime']:        # remain_recent
-        # print(option_model)
-        col_0 = 'filename'
-        fpath_df = pd.DataFrame(fpath_ls, columns=[col_0])
-        f = getattr(os.path, option_model)
-        fpath_df['abs_fpath'] = [os.path.join(tempdir, f_i) for f_i in fpath_df[col_0]]
-        fpath_df['t_tamp_ls'] = [f(os.path.join(tempdir, f_i)) for f_i in fpath_df[col_0]]
-        fpath_df['t_str_ls'] = [dt.datetime.fromtimestamp(f_i).strftime("%Y-%m-%d %H:%M:%S") for f_i in fpath_df['t_tamp_ls']]
-
-        # 删到remain_rows个文件为止
-        remain_rows = remain_rows if remain_rows else MAX_TEMPS//3
-        delete_rows = temps - remain_rows
-
-        # delete_fpath_df[['t_tamp_ls', 't_str_ls']]
-        delete_fpath_df = fpath_df.sort_values(by='t_tamp_ls')[:delete_rows]
-
-        # --- 按空间清理
-        # remain_fpath_df = fpath_df.sort_values(by='t_tamp_ls', ascending=False)[:MAX_TEMPS]
-        # remain_fpath_df['size'] = [os.path.getsize(os.path.join(tempdir, f_i)) for f_i in remain_fpath_df[col_0]]
-        #
-        # remain_fpath_df[['t_str_ls', 'size']]
-        # # MAX_SPACE = 1024 * 10
-        #
-        # s = 0
-        # size_ls = fpath_df['size'].tolist()
-        # size_ls.reverse()
-        # for i in range(fpath_df.shape[0]):
-        #     size = size_ls[i]
-        #     s += size
-        #     print(i, size, s)
-        #     if s >= MAX_SPACE:
-        #         break
-        # space_i = i - 1
-        # space_i
-        # fpath_df.sort_values(by='size')[:MAX_TEMPS]
-
-        fpath_ls = delete_fpath_df[col_0].tolist()
-        temps = len(fpath_ls)
-
-    tt = Time()
-
-    tt.sleep(1)
-    if not quiet:
-        print(f'*************** 开始清理缓存 {tempdir} *************')
-    for fpath in fpath_ls:
-        i = 0
-        tt.__init__()
-        while tt.during(5):
-            i += 1
-            dirpath = os.path.join(tempdir, fpath)
-
-            try:
-                if os.path.isdir(dirpath):
-                    # os.removedirs(dirpath)
-                    shutil.rmtree(dirpath)
-                else:
-                    os.remove(dirpath)
-                if not quiet:
-                    print(f"~~~ success: 移除文件[{dirpath}]成功! -- 第[{i}]次")
-                break
-            except:
-                print(f"** 第[{i}]次移除文件[{dirpath}]失败...可能文件被占用中?")
-                tt.sleep(1)
-                if i > 3:
-                    print(f"======== Warning: 移除文件[{dirpath}]失败!")
-    if not quiet:
-        print(f'*************** [{desc}] 缓存清理完毕 *************')
-    return True
-
-
-def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5, desc='---', remain_rows=None, option_model='getatime', quiet=True):
-    """
-    当大于MAX_TEMPS时启动临时文件清理程序
-    """
-    temps = len(os.listdir(tempdir))
-
-    if temps > MAX_TEMPS:
-        t1 = threading.Thread(target=_remove_temp_file, args=(tempdir, MAX_TEMPS, desc, remain_rows, option_model, quiet))
-        t1.start()
-        return True
-    else:
-        if not quiet:
-            print(f'{desc} --- 缓存还足够, 不用清理... 缓存文件: {temps}/{MAX_TEMPS}, tempdir: {tempdir}')
-        return False
+from django.contrib.auth import get_permission_codename
 
 
 class IDAdmin(admin.ModelAdmin):
@@ -452,6 +349,11 @@ class ImportAdmin(IDAdmin):
     """
     change_list_template = CHANGE_LIST_HTML_PATH
 
+    custom_import_and_export_buttons = True
+    has_import_perm = True      # 导入数据
+    has_export_perm = True      # 全部导出
+    check_import_and_export_perm = True     # 是否检查导入导出按钮的权限
+
     def import_csv(self, request):
         t_import = Time()
         index = 0
@@ -604,6 +506,35 @@ class ImportAdmin(IDAdmin):
     def remove_temp_file(self, tempdir):
         return remove_temp_file(tempdir)
 
+    def changelist_view(self, request, extra_context=None):
+        if not self.check_import_and_export_perm:
+            has_import_perm = has_export_perm = True
+        else:
+            opts = self.opts
+
+            def has_action_permission(opts, action):
+                codename = get_permission_codename(action, opts)
+                has_perm = request.user.has_perm('%s.%s' % (opts.app_label, codename))
+                return has_perm
+
+            has_add_perm = has_action_permission(opts, 'add')
+            has_change_perm = has_action_permission(opts, 'change')
+            has_view_perm = has_action_permission(opts, 'view')
+
+            has_import_perm = self.has_import_perm and has_add_perm and has_change_perm
+            has_export_perm = self.has_export_perm and has_view_perm
+
+        if extra_context is None:
+            extra_context = {}
+        extra_context.update({
+            'custom_import_and_export_buttons': self.custom_import_and_export_buttons,
+            'has_import_perm': has_import_perm,
+            'has_export_perm': has_export_perm,
+        })
+
+        ret = super().changelist_view(request, extra_context=extra_context)
+        return ret
+
 
 class CsvImportExportAdmin(ImportAdmin, ExportCsvMixin):
     """
@@ -631,12 +562,7 @@ class ExcelImportExportAdmin(ImportAdmin, ExportExcelMixin):
 
     - 不能与admin.ModelAdmin一起用!
     """
-
-    # actions = ['export_as_excel']
-    def __init__(self, *args, **kwargs):
-        if 'export_as_excel' not in self.actions:
-            self.actions.append('export_as_excel')
-        super().__init__(*args, **kwargs)
+    default_export_action = True        # 默认增加导出按钮
 
     def get_search_results(self, request, queryset, search_term):
         """
@@ -659,6 +585,14 @@ class ExcelImportExportAdmin(ImportAdmin, ExportExcelMixin):
             ret = (queryset, False)
         return ret
 
+    def get_actions(self, request):
+        ACTION_NAME = 'export_as_excel'
+        if self.default_export_action and ACTION_NAME not in self.actions:
+            if self.actions is None:
+                self.actions = []
+            self.actions.append(ACTION_NAME)
+        ret = super().get_actions(request)
+        return ret
 
 class ListDisplayAdmin(ExcelImportExportAdmin):
     """

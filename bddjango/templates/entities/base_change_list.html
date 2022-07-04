@@ -7,8 +7,10 @@
 {% block object-tools %}
     {{ block.super }}
 
-        <div style="margin-bottom: 40px;">
+    {% if custom_import_and_export_buttons %}
+    <div style="margin-bottom: 40px;">
 
+            {% if has_export_perm %}
             <a href="export_all_excel/" target="_blank">
                <button type="button" class="button"
                        style="font-size: 13px;
@@ -31,7 +33,9 @@
                     </span>
                 </button>
             </a>
+            {% endif %}
 
+            {% if has_import_perm %}
             <a href="import-csv/">
                 <button type="button" class="button"
 
@@ -57,7 +61,9 @@
                     </span>
                 </button>
             </a>
-        </div>
+            {% endif %}
 
+        </div>
+    {% endif %}
 {% endblock %}
 

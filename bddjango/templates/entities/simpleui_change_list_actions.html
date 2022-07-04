@@ -1,6 +1,10 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls static admin_list simpletags %}
 
+{#自定义的导入导出按钮权限#}
+{#                            has_import_perm: {{ has_import_perm }}#}
+{#                            has_export_perm: {{ has_export_perm }}#}
+
 {% block extrastyle %}
     {{ block.super }}
     <link rel="stylesheet" type="text/css" href="{% static 'admin/css/changelists.css' %}?_=20180905"/>
@@ -70,8 +74,9 @@
                 {% endif %}
             {% endblock %}
         </ul>
-        <div>
 
+        {% if custom_import_and_export_buttons %}
+        <div>
             <div class="my_table_title" style="display: flex;">
 
                 <span
@@ -87,6 +92,7 @@
                 </span>
 
                 <div class="my_buttons" style="margin-left: auto;margin-right: 5px;margin-top: 10px">
+                    {% if has_export_perm %}
                     <a href="export_all_excel/" target="_blank">
                        <button type="button" class="el-button el-button--default el-button--small"
 
@@ -101,7 +107,9 @@
                             </span>
                         </button>
                     </a>
+                    {% endif %}
 
+                    {% if has_import_perm %}
                     <a href="import-csv/">
                         <button type="button" class="el-button el-button--default el-button--small"
 
@@ -110,17 +118,21 @@
                                 margin-right: 10px;"
 
                                 data-name="export_as_csv">
+
                             <i class="fas fa-upload"></i>
                             <span>
                                 导入数据
                             </span>
                         </button>
                     </a>
-                </div>
+                    {% endif %}
 
+                </div>
 
             </div>
         </div>
+        {% endif %}
+
     {% endblock %}
 
     <div id="content-main">

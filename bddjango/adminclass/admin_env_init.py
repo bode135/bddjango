@@ -1,9 +1,7 @@
 import os
 import shutil
 from django.conf import settings
-
-
-TEMPDIR = 'tempdir'     # 临时文件夹
+from ..pure import TEMPDIR
 
 
 # --- 检测是否安装了simpleui, 以使用不同界面配置
@@ -37,6 +35,7 @@ CHANGE_LIST_HTML_PATH = os.path.join(TEMPLATES_DIR, CHANGE_LIST_HTML_PATH)
 if BD_USE_SIMPLEUI and not os.path.exists(os.path.join('templates', 'admin', 'actions.html')):
     from django.contrib.admin.templatetags.admin_list import admin_actions, InclusionAdminNode, register
     template_name = 'simpleui_admin_actions.html'
+
     @register.tag(name='simpleui_admin_actions')
     def simpleui_admin_actions(parser, token):
         return InclusionAdminNode(parser, token, func=admin_actions, template_name=template_name)
@@ -55,4 +54,4 @@ create_dir_if_not_exist(TEMPDIR)
 
 
 if __name__ == '__main__':
-    run()
+    pass

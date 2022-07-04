@@ -42,6 +42,8 @@ import sys
 from .conf import PAGINATION_SETTINGS
 from django.db import models as m
 from django.db import connection
+from copy import deepcopy
+# from rest_framework import serializers
 
 
 def get_list(query_dc, key):
@@ -57,6 +59,31 @@ def get_list(query_dc, key):
     return ret
 
 
+def get_key_from_request_data_or_self_obj(request_data, self_obj, key, get_type=None):
+    """
+    优先检索request_data是否有key, 其次检索self_obj是否有key这个属性
+    :param key: 变量名
+    :return:
+    """
+    query_dc = request_data
+
+    if get_type == 'list':
+        value = get_list(query_dc, key)
+    elif get_type == 'bool':
+        value = query_dc.get(key)
+        ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
+        ret_1 = pure.convert_query_parameter_to_bool(value) if value else None
+        ret = ret_1 if ret_1 is not None else ret_0
+        return ret
+    else:
+        value = query_dc.get(key)
+
+    # 让request携带的数据可以覆盖自身的key值
+    ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
+    ret = value if value is not None else ret_0
+    return ret
+
+
 def set_query_dc_value(query_dc: QueryDict, new_dc: dict):
     query_dc._mutable = True
     for key, value in new_dc.items():
@@ -66,22 +93,94 @@ def set_query_dc_value(query_dc: QueryDict, new_dc: dict):
     return query_dc
 
 
-def get_base_serializer(base_model, base_fields='__all__'):
+def get_field_names_by_model(model_class):
+    fields = model_class._meta.fields
+    field_names = [getattr(field, 'name') for field in fields]
+    return field_names
+
+
+def get_base_serializer(base_model, base_fields='__all__', auto_generate_annotate_fields=None):
     """
     生成一个基础序列化器
 
     :param base_model: queryset或者base_model
-    :param base_fields: 字段
+    :param base_fields: 想要返回的字段
+    :param auto_generate_annotate_fields: 指定将自动生成的annotate的字段, 为[True, '__all__']时自动替换为base_fields
     :return:
     """
     base_model = get_base_model(base_model)
+    field_names = get_field_names_by_model(base_model)
+    if base_fields != '__all__' and auto_generate_annotate_fields is None:
+        if len(set(base_fields) - set(field_names)):
+            auto_generate_annotate_fields = True
 
-    class BaseSerializer(s.ModelSerializer):
-        class Meta:
-            model = base_model
-            fields = base_fields
-    base_serializer = BaseSerializer
-    return base_serializer
+    if auto_generate_annotate_fields is None:
+        class BaseSerializer(s.ModelSerializer):
+            class Meta:
+                model = base_model
+                fields = base_fields
+
+        base_serializer = BaseSerializer
+        return base_serializer
+    else:
+        if auto_generate_annotate_fields is True or auto_generate_annotate_fields in ['__all__', ['__all__']]:
+            auto_generate_annotate_fields = base_fields
+        elif isinstance(auto_generate_annotate_fields, list):
+            auto_generate_annotate_fields = auto_generate_annotate_fields + field_names
+        else:
+            raise ValueError(f"auto_generate_annotate_fields[{auto_generate_annotate_fields}]取值错误!")
+
+        # --- 这里要把queryset里有, 但model.fields里没有的字段在serializers时自动加上
+        new_dc_ls = []
+        new_func_ls = []
+        for field in auto_generate_annotate_fields:
+            if field not in field_names and field not in '__all__':
+                # 指定方法字段 SerializerMethodField 后, 再增加 get_field_function.
+                field_method = s.SerializerMethodField()
+                new_func_name = f'get_{field}'
+
+                def get_field_value(self, obj):
+                    ret = None
+                    k_name = getattr(self, '__field_name__')
+                    if hasattr(obj, k_name):
+                        ret = getattr(obj, k_name)
+                    elif isinstance(obj, dict) and k_name in obj:
+                        ret = obj.get(k_name)
+                    else:
+                        msg = f'自动生成的[{k_name}]字段值为空! --- from get_base_serializer'
+                        warn(msg)
+                    return ret
+
+                new_func_cls = {
+                    '__field_name__': field,
+                    new_func_name: get_field_value,
+                }
+                new_func_cls = type("new_func_cls", (object,), new_func_cls)
+                new_func = getattr(new_func_cls(), new_func_name)
+
+                new_dc_i = {
+                    field: field_method,
+                }
+                new_func_i = {
+                    new_func_name: new_func,
+                }
+                new_dc_ls.append(new_dc_i)
+                new_func_ls.append(new_func_i)
+
+        # --- 生成新序列化器base_serializer
+        meta_dc = {
+            'model': base_model,
+            'fields': base_fields
+        }
+        Meta = type("Meta", (object,), meta_dc)
+        cls_dc = {
+            'Meta': Meta,
+        }
+        for i in range(len(new_dc_ls)):
+            cls_dc.update(new_dc_ls[i])
+            cls_dc.update(new_func_ls[i])
+        base_serializer = type("BaseSerializer", (s.ModelSerializer,), cls_dc)
+        return base_serializer
 
 
 def judge_is_obj_level_of_request(request):
@@ -291,16 +390,19 @@ def conv_queryset_to_dc_ls(queryset: QuerySet):
     return dc_ls
 
 
-def order_qs_ls_by_id(qs_ls, sort_by='id'):
-    df = pd.DataFrame(qs_ls).sort_values(by=sort_by)
+def order_qs_ls_by_id(qs_ls, sort_by='id', ascending=True):
+    df = pd.DataFrame(qs_ls)
+    if df.empty:
+        return []
+    df = df.sort_values(by=sort_by, ascending=ascending)
 
     cols = df.columns
     dc_ls = []
     for i, row in df.iterrows():
-        dc = {
-            cols[0]: row.get(cols[0]),
-            cols[1]: row.get(cols[1]),
-        }
+        dc = {}
+        for j in range(len(cols)):
+            _dc = {cols[j]: row.get(cols[j])}
+            dc.update(_dc)
         dc_ls.append(dc)
     return dc_ls
 
@@ -473,6 +575,15 @@ def get_MySubQuery(my_model, field_name, function_name, output_field=m.IntegerFi
     :param output_field: 使用Query计算后, 输出的字段类型
     :param alias: 计算后储存结果变量名, 默认为`tmp`
     :return: 子查询类`MySubQuery`
+
+    ## eg:
+    SQCount = get_MySubQuery(my_model=classification_qs_ls_0, field_name=foreign_key_name, function_name='Count', output_field=m.IntegerField)
+    classification_qs_ls = classification_qs_ls_0.annotate(
+        # 每个学科有多少种
+        count=SQCount(
+            classification_qs_ls_0.filter(**{key: m.OuterRef(key)})
+        ),
+    )
     """
     base_model = get_base_model(my_model)
     meta = base_model._meta
@@ -609,3 +720,55 @@ def judge_db_is_migrating():
         return True
     else:
         return False
+
+
+def get_total_occurance_times_by_keywords(total_qs_ls, search_field_ls, keywords, get_frequence=False):
+    """
+    统计keywords在qs_ls的search_field_ls中是否出现
+
+    :param total_qs_ls: 用来统计的queryset
+    :param search_field_ls: 要匹配的字段
+    :param kw: 用来检索的关键词
+    :param get_frequence: 是否精确计算kw在字段中出现的次数
+    :return: queryset, 且annotate出现次数, 存在`total_occurance_times`字段中
+    """
+    from django.db.models import functions
+
+    my_api_assert_function(isinstance(keywords, list), 'keywords的类型必须为list!')
+    search_dc = {}
+    occurance_times_ls = []
+
+    for k in range(len(keywords)):
+        kw = keywords[k]
+        kw_l = len(kw)
+        for sf_i in search_field_ls:
+            if get_frequence:
+                k_name = f'k{k}_{sf_i}_occurance_times'
+                dc = {
+                    k_name: (functions.Length(sf_i) - functions.Length(
+                        functions.Replace(sf_i, m.Value(kw), m.Value('')))) / kw_l  # 出现次数
+                }
+            else:
+                k_name = f'k{k}_in_{sf_i}'
+                dc = {
+                    k_name: m.Exists(total_qs_ls.filter(id=m.OuterRef('id')).filter(**{f'{sf_i}__contains': kw})),   # 判断是否在title中
+                }
+            occurance_times_ls.append(k_name)
+            search_dc.update(dc)
+    res_qs_ls: m.QuerySet = total_qs_ls.annotate(**search_dc)
+    # show_ls(res_qs_ls.values(*(['id'] + search_field_ls + list(search_dc.keys())))[:3])
+
+    f_ls = 0
+    for i in occurance_times_ls:
+        if get_frequence:
+            f_ls += F(i)
+        else:
+            f_ls += m.Case(
+                m.When(**{i: True}, then=m.Value(1)),
+                default=0,
+                output_field=m.IntegerField()
+            )
+
+    res_qs_ls = res_qs_ls.annotate(**{'total_occurance_times': f_ls})
+    ret = res_qs_ls
+    return ret

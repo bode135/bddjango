@@ -1,3 +1,6 @@
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
+
 import os
 import zipfile
 import re
@@ -8,7 +11,7 @@ def zipDir(dirpath, outFullName, remove_root_dir_path=None):
     压缩指定文件夹
     :param dirpath: 目标文件夹路径
     :param outFullName: 压缩文件保存路径+xxxx.zip
-    :param remove_root_dir_path: 是否去掉目标根路径. 若为str, 则删除该根路径文件名, 若为1, 则删除所有根路径.
+    :param remove_root_dir_path: 是否去掉目标根路径. 若为str, 则删除该根路径文件名, 若为1, 则删除所有根路径. 2则保留最后一层
     :return: 无
     """
 
@@ -48,15 +51,28 @@ def zipDir(dirpath, outFullName, remove_root_dir_path=None):
     elif remove_root_dir_path == 1:
         with zipfile.ZipFile(outFullName, "w", zipfile.ZIP_DEFLATED) as zip:
             for path, dirnames, filenames in os.walk(dirpath):
-                # 去掉目标根路径，只对目标文件夹下边的文件及文件夹进行压缩
                 fpath = path.replace(dirpath, '')
+                print(fpath, path, dirnames, filenames)
+                # 去掉目标根路径，只对目标文件夹下边的文件及文件夹进行压缩
+                for filename in filenames:
+                    zip.write(os.path.join(path, filename), os.path.join(fpath, filename))
+    elif remove_root_dir_path == 2:     # 保留最后一层文件夹模式
+        with zipfile.ZipFile(outFullName, "w", zipfile.ZIP_DEFLATED) as zip:
+            base_dirpath = os.path.basename(dirpath)
+            for path, dirnames, filenames in os.walk(dirpath):
+                fpath = path.replace(dirpath, base_dirpath)
+                # 去掉目标根路径，只对目标文件夹下边的文件及文件夹进行压缩
                 for filename in filenames:
                     zip.write(os.path.join(path, filename), os.path.join(fpath, filename))
 
 
 if __name__ == "__main__":
-    input_path = "tempdir/预报名表_20211221_190018"
-    output_path = "./test.zip"
+    import sys
+    assert len(sys.argv) == 2, '必须将文件夹拖拽进来!'
+    # input_path = "temp"
+    input_path = sys.argv[1]
+    print('input_path --- ', input_path)
+    output_path = f"./{os.path.basename(input_path)}.zip"
 
-    zipDir(input_path, output_path, remove_root_dir_path='tempdir/')
-    # zipDir(input_path, output_path, remove_root_dir_path=1)
+    # zipDir(input_path, output_path)
+    zipDir(input_path, output_path, remove_root_dir_path=2)
