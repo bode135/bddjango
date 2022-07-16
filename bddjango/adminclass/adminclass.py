@@ -1,7 +1,30 @@
 """
-导入csv
-导出csv或excel
+# BaseAdmin控制选项
+
+> 导入功能要求用户必须拥有对应的add权限.
+
+- stop_field_ls                                         # 停用词列表, 字段名包含该词的字段将不展示.
+
+- move_id_to_tail = False                               # id移到最后一列去
+
+- origin_list = False                                   # 展示原str
+
+- `ExcelImportExportAdmin`选项
+    - default_export_action = True                      # 默认增加导出按钮
+    - `ExportExcelMixin`导出选项
+        - export_asc = False                            # 按id升序导出
+        - add_index = False                             # 导出时是否增加index列
+
+- `ImportAdmin`导入导出选项
+    - change_list_template = CHANGE_LIST_HTML_PATH      # 模板路径, 一般CHANGE_LIST_HTML_PATH的路径在'~bddjango/templates/entities/...'中
+
+    - custom_import_and_export_buttons = True           # 是否显示自定义的导入导出按钮
+    - has_import_perm = True                            # 导入数据
+    - has_export_perm = True                            # 全部导出
+    - check_import_and_export_perm = True               # 是否检查导入导出按钮的权限
+
 """
+
 import csv
 import datetime
 import threading
@@ -105,6 +128,9 @@ def conv_date_field_str_format(ts):
     if isinstance(ts, Timestamp):
         return ts
 
+    if isinstance(ts, datetime.datetime):
+        return ts
+
     if not ts or ts == 'None':
         return None
 
@@ -114,6 +140,8 @@ def conv_date_field_str_format(ts):
     if '/' in ts:
         ts = datetime.datetime.strptime(ts, '%Y/%m/%d')
         ts = datetime.datetime.strftime(ts, '%Y-%m-%d')
+    # elif '.' in ts:
+    #     print('11111111')
     else:
         try:
             # 若匹配得到， 说明格式不用换
@@ -594,6 +622,7 @@ class ExcelImportExportAdmin(ImportAdmin, ExportExcelMixin):
         ret = super().get_actions(request)
         return ret
 
+
 class ListDisplayAdmin(ExcelImportExportAdmin):
     """
     * admin展示界面
@@ -618,7 +647,7 @@ class ListDisplayAdmin(ExcelImportExportAdmin):
         meta = self.model._meta
         field_names = [field.name for field in meta.fields]
 
-        if self.list_display == [] or self.list_display == None:
+        if self.list_display == [] or self.list_display is None:
             self.list_display = ('__str__', )
             self.origin_list = True
             return
@@ -719,4 +748,5 @@ class PureAdmin(admin.ModelAdmin):
 
 
 BaseAdmin = ForceRunActionsAdmin
+
 

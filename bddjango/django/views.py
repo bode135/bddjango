@@ -184,8 +184,9 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             queryset = queryset.objects.filter(Q(**dc))
         # print(get_executable_sql(queryset))
 
-        if queryset.count() != 1:
-            if queryset.count() > 1:
+        count = queryset.count()
+        if count != 1:
+            if count > 1:
                 my_api_assert_function(False, f'检索结果不唯一!')
             else:
                 my_api_assert_function(False, f'未检索到{dc}对应的内容!')
@@ -230,7 +231,10 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             return {}
 
         if self._post_type is None:
-            ret = self.request.query_params
+            if self.request.method and self.request.method not in ['GET', 'HEAD', 'OPTIONS']:
+                ret = self.request.data
+            else:
+                ret = self.request.query_params
         else:
             # ret = self.request.GET or self.request.query_params or self.request.data
             ret = self.request.data or self.request.query_params
@@ -293,7 +297,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         """
         返回用self.filter_fields过滤后的queryset列表
         """
-        if self.queryset.count():
+        if self.queryset.exists():
             """
             过滤字段filter_fields
             """
@@ -302,7 +306,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
             self.queryset = self.get_queryset()
             base_model = get_base_model(self.queryset)
-            if base_model.objects.count() == 0:
+            if not base_model.objects.exists():     # exists省性能
                 return self.queryset
 
             meta = base_model.objects.first()._meta
@@ -310,7 +314,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             many_to_many_field_names = [field.name for field in meta.many_to_many]
             if many_to_many_field_names:
                 field_names.extend(many_to_many_field_names)
-            if self.queryset.count():
+
+            if self.queryset.exists():      # exists 比 count 省性能
                 qs_i = self.queryset[0]
                 if isinstance(qs_i, dict):
                     new_names = list(qs_i.keys())
@@ -331,7 +336,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                 negative_flag = False   # 是否取否
 
                 if fn:
-                    fn: str
+                    # fn: str
                     if fn.startswith(self.negative_flag):
                         fn = fn[1:]
                         negative_flag = True
@@ -349,7 +354,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                     if value is not None and value != '':  # 默认为空字符串时, 将不作为过滤条件
                         # print(fn, value)
                         convert_to_bool_flag = self.convert_to_bool_flag
-                        if value.startswith(convert_to_bool_flag):
+                        if isinstance(value, str) and value.startswith(convert_to_bool_flag):
                             value = pure.convert_query_parameter_to_bool(value[len(convert_to_bool_flag):])
 
                         dc = {fn: value}
@@ -366,7 +371,10 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     def list(self, request, *args, **kwargs):
         query_dc = self.get_request_data()
         page_size = query_dc.get('page_size', self.pagination_class.page_size)
+
         p = query_dc.get('p', 1)
+        my_api_assert_function(int(p) != 0, '页码p的值不能为0!')
+
         context = self.get_serializer_context()
 
         serializer_class = self.get_serializer_class()
@@ -553,7 +561,7 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
 
         base_model = get_base_model(self.queryset)
         qs_ls: m.QuerySet = base_model.objects.filter(id__in=id_ls)
-        my_api_assert_function(qs_ls.count(), '未找到id_ls对应的数据!')
+        my_api_assert_function(qs_ls.exists(), '未找到id_ls对应的数据!')
 
         qs_i = qs_ls[0]     # 样例数据
 

@@ -38,8 +38,14 @@ def version():
         - zip功能完善       # 2.4.2
         - get_base_serializer解决'__all__'和retrieve时出现的bug        # 2.4.3
         - retrieve_filter_field现在可由前端指定
+        - excel导入datetime字段时的处理
+        - BaseListView中的count替换为exists, 提升性能
+        - 修复exists的值取反导致检索全部失效的bug
+        - 修复extract_pdf出错的bug: PdfFileReader(pdfFile, strict=False)
+        - 返回页码p不能为0的报错信息
+        - .adminclass增加注释和使用说明        # 2.4.4
     """
-    v = "2.4.3"
+    v = "2.4.4"     # 当前: 2.4.4
     return v
 
 

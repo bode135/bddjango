@@ -84,7 +84,8 @@ def get_key_from_request_data_or_self_obj(request_data, self_obj, key, get_type=
     return ret
 
 
-def set_query_dc_value(query_dc: QueryDict, new_dc: dict):
+def set_query_dc_value(query_dc: (QueryDict, dict), new_dc: dict):
+    assert isinstance(query_dc, QueryDict), 'query_dc必须是QueryDict类型!'
     query_dc._mutable = True
     for key, value in new_dc.items():
         ls = value if isinstance(value, (tuple, list)) else [value]
@@ -94,6 +95,8 @@ def set_query_dc_value(query_dc: QueryDict, new_dc: dict):
 
 
 def get_field_names_by_model(model_class):
+    if isinstance(model_class, m.QuerySet):
+        model_class = get_base_model(model_class)
     fields = model_class._meta.fields
     field_names = [getattr(field, 'name') for field in fields]
     return field_names
@@ -358,26 +361,33 @@ def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16, context=None
     - 指定模型的queryset_ls和serializer, 然后按给定的page和per_page参数获取分页后的数据
     """
 
-    p = Paginator(qsls, per_page)
-    page_obj = p.get_page(page)
-    # page_dc = {
-    #     'num_pages': p.num_pages,
-    #     'count_objects': p.count,
-    #     'current_page_number': page_obj.number,
-    # }
-    page_dc = {
-            "count_items": int(p.count),
-            "total_pages": int(p.num_pages),
-            "page_size": int(per_page),
+    page_size = int(per_page)
+
+    if page_size == 0:
+        page_dc = {
+            "count_items": qsls.count(),
+            "total_pages": None,
+            "page_size": page_size,
             "p": int(page)
-        },
+        }
+        return [], page_dc
+
+    p = Paginator(qsls, per_page)
+    page_dc = {
+        "count_items": int(p.count),
+        "total_pages": int(p.num_pages),
+        "page_size": page_size,
+        "p": int(page)
+    }
+
+    page_obj = p.get_page(page)
 
     # --- 处理单个Model和多个Model的情况
     if serializer.__class__.__name__ == 'function':
         try:
             dc_ls = serializer(page_obj, context=context)
         except Exception as e:
-            print('--- paginate_qsls_to_dcls错误!!! 2022/2/25')
+            raise Exception(f'--- paginate_qsls_to_dcls错误!!! 2022/2/25, error: {e}')
     else:
         dc_ls = serializer(page_obj, many=True, context=context).data
     return dc_ls, page_dc
@@ -722,7 +732,7 @@ def judge_db_is_migrating():
         return False
 
 
-def get_total_occurance_times_by_keywords(total_qs_ls, search_field_ls, keywords, get_frequence=False):
+def get_total_occurrence_times_by_keywords(total_qs_ls, search_field_ls, keywords, get_frequence=False):
     """
     统计keywords在qs_ls的search_field_ls中是否出现
 
@@ -730,20 +740,20 @@ def get_total_occurance_times_by_keywords(total_qs_ls, search_field_ls, keywords
     :param search_field_ls: 要匹配的字段
     :param kw: 用来检索的关键词
     :param get_frequence: 是否精确计算kw在字段中出现的次数
-    :return: queryset, 且annotate出现次数, 存在`total_occurance_times`字段中
+    :return: queryset, 且annotate出现次数, 存在`total_occurrence_times`字段中
     """
     from django.db.models import functions
 
     my_api_assert_function(isinstance(keywords, list), 'keywords的类型必须为list!')
     search_dc = {}
-    occurance_times_ls = []
+    occurrence_times_ls = []
 
     for k in range(len(keywords)):
         kw = keywords[k]
         kw_l = len(kw)
         for sf_i in search_field_ls:
             if get_frequence:
-                k_name = f'k{k}_{sf_i}_occurance_times'
+                k_name = f'k{k}_{sf_i}_occurrence_times'
                 dc = {
                     k_name: (functions.Length(sf_i) - functions.Length(
                         functions.Replace(sf_i, m.Value(kw), m.Value('')))) / kw_l  # 出现次数
@@ -753,13 +763,13 @@ def get_total_occurance_times_by_keywords(total_qs_ls, search_field_ls, keywords
                 dc = {
                     k_name: m.Exists(total_qs_ls.filter(id=m.OuterRef('id')).filter(**{f'{sf_i}__contains': kw})),   # 判断是否在title中
                 }
-            occurance_times_ls.append(k_name)
+            occurrence_times_ls.append(k_name)
             search_dc.update(dc)
     res_qs_ls: m.QuerySet = total_qs_ls.annotate(**search_dc)
     # show_ls(res_qs_ls.values(*(['id'] + search_field_ls + list(search_dc.keys())))[:3])
 
     f_ls = 0
-    for i in occurance_times_ls:
+    for i in occurrence_times_ls:
         if get_frequence:
             f_ls += F(i)
         else:
@@ -769,6 +779,6 @@ def get_total_occurance_times_by_keywords(total_qs_ls, search_field_ls, keywords
                 output_field=m.IntegerField()
             )
 
-    res_qs_ls = res_qs_ls.annotate(**{'total_occurance_times': f_ls})
+    res_qs_ls = res_qs_ls.annotate(**{'total_occurrence_times': f_ls})
     ret = res_qs_ls
     return ret

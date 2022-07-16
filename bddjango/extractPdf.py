@@ -12,7 +12,7 @@ def get_file_size(file_path, dround=3):
 
 def get_pdf_info(file_path):
     pdfFile = open(file_path, 'rb')
-    pdfReader = PyPDF2.PdfFileReader(pdfFile)
+    pdfReader = PyPDF2.PdfFileReader(pdfFile, strict=False)
     total_pages = pdfReader.numPages
     size = get_file_size(file_path)
     return total_pages, size
@@ -20,7 +20,7 @@ def get_pdf_info(file_path):
 
 def extract_pdf(origFileName, newFileName, page=None, nums=1, rotation=0):
     pdfFile = open(origFileName, 'rb')
-    pdfReader = PyPDF2.PdfFileReader(pdfFile)
+    pdfReader = PyPDF2.PdfFileReader(pdfFile, strict=False)
     pdfWriter = PyPDF2.PdfFileWriter()
 
     assert page is not None, '请指定页数page!'

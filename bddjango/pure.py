@@ -253,3 +253,25 @@ def remove_temp_file(tempdir=TEMPDIR, MAX_TEMPS=5, desc='---', remain_rows=None,
         return False
 
 
+class SetUtils:
+    @staticmethod
+    def get_ls_a_and_b(ls_a, ls_b):
+        # 获得列表a和b的交集 a and b
+        ret = [j for j in ls_a if j in ls_b]
+        return ret
+
+    @staticmethod
+    def get_ls_a_or_b(ls_a, ls_b):
+        # 获得列表a和b的交集 a and b
+        ret = list(set(ls_a) | (set(ls_b)))
+        return ret
+
+    @staticmethod
+    def get_ls_a_sub_b(ls_a, ls_b):
+        # 获得列表a和b的交集 a and b
+        ret = list(set(ls_a) - set(ls_b))
+        return ret
+
+
+set_utils = SetUtils()
+
