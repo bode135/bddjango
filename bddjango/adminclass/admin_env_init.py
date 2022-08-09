@@ -3,8 +3,15 @@ from django.conf import settings
 from ..pure import TEMPDIR
 
 
+if not hasattr(settings, 'BD_USE_AJAX_ADMIN'):
+    BD_USE_AJAX_ADMIN = True
+else:
+    BD_USE_AJAX_ADMIN = getattr(settings, 'BD_USE_AJAX_ADMIN')  # 是否使用AjaxAdmin
+
+
 # --- 检测是否安装了simpleui, 以使用不同界面配置
 app_ls: list = settings.INSTALLED_APPS
+
 BD_USE_SIMPLEUI = True if 'simpleui' in app_ls or 'simpleuipro'in app_ls else False
 CHANGE_LIST_HTML_PATH = os.path.join('entities', 'simpleui_change_list.html') if BD_USE_SIMPLEUI else os.path.join('entities', 'base_change_list.html')
 

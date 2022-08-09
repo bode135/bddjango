@@ -44,8 +44,17 @@ def version():
         - 修复extract_pdf出错的bug: PdfFileReader(pdfFile, strict=False)
         - 返回页码p不能为0的报错信息
         - .adminclass增加注释和使用说明        # 2.4.4
+        - bulk_delete增加权限控制        # 2.4.5
+        - order_by_order_type_ls修复为[""]的时候出现的bug
+        - 页码p的提示更人性化, 改为必须正整数        # 2.4.6
+        - 页码p或page_size等于GET_ALL(-999)时, 则返回全部数据
+        - admin增加orm检索      # 2.4.7
+        - simplrui的admin_class的基类改为`AjaxAdmin`
+        - 修复Mixin后置导致的Guadian失效的bug     # 2.4.8
+        - 增加_ajax_return_qs_ls, 以便admin中的ajax方法返回qs_ls      # 2.4.9
+        - django.utils.get_field_names_by_model增加`field_attr`, 以便获取[name, verbose_name]
     """
-    v = "2.4.4"     # 当前: 2.4.4
+    v = "2.4.9"  # 当前: 2.4.9
     return v
 
 
@@ -55,7 +64,6 @@ except Exception as e:
     warn('导入django失败? --- ' + str(e))
 
 try:
-    from .myFIelds import AliasField        # 这个只能在这里引用, 不然`adminclass`报错
+    from .myFIelds import AliasField  # 这个只能在这里引用, 不然`adminclass`报错
 except Exception as e:
     warn('导入`AliasField`失败? --- ' + str(e))
-

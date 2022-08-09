@@ -56,6 +56,10 @@ def get_list(query_dc, key):
 
     if isinstance(ret, str):
         ret = [ret]
+
+    if ret == ['']:
+        ret = []
+
     return ret
 
 
@@ -94,11 +98,18 @@ def set_query_dc_value(query_dc: (QueryDict, dict), new_dc: dict):
     return query_dc
 
 
-def get_field_names_by_model(model_class):
+def get_field_names_by_model(model_class, field_attr='name'):
+    """
+    获得model.meta中的字段名属性
+
+    :param model_class: 目标模型
+    :param field_attr: 可取[name, verbose_name]
+    :return:
+    """
     if isinstance(model_class, m.QuerySet):
         model_class = get_base_model(model_class)
     fields = model_class._meta.fields
-    field_names = [getattr(field, 'name') for field in fields]
+    field_names = [getattr(field, field_attr) for field in fields]
     return field_names
 
 
@@ -782,3 +793,5 @@ def get_total_occurrence_times_by_keywords(total_qs_ls, search_field_ls, keyword
     res_qs_ls = res_qs_ls.annotate(**{'total_occurrence_times': f_ls})
     ret = res_qs_ls
     return ret
+
+

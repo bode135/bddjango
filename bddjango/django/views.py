@@ -251,10 +251,14 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         按order_type_ls指定的字段排序
         """
         query_dc = self.get_request_data()
-        order_type_ls = get_list(query_dc, key='order_type_ls') if get_list(query_dc,
-                                                                            key='order_type_ls') else self.order_type_ls
-        distinct_field_ls = get_list(query_dc, key='distinct_field_ls') if get_list(query_dc,
-                                                                                    key='distinct_field_ls') else self.distinct_field_ls
+        # order_type_ls = get_list(query_dc, key='order_type_ls') \
+        #     if get_list(query_dc, key='order_type_ls') else self.order_type_ls
+
+        # distinct_field_ls = get_list(query_dc, key='distinct_field_ls')\
+        #     if get_list(query_dc, key='distinct_field_ls') else self.distinct_field_ls
+
+        order_type_ls = self.get_key_from_query_dc_or_self('order_type_ls', get_type='list')
+        distinct_field_ls = self.get_key_from_query_dc_or_self('distinct_field_ls', get_type='list')
 
         if not order_type_ls:
             # 旧版本可能用的order_type, 尝试赋值
@@ -270,7 +274,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             qs_ls = qs_ls.order_by(*distinct_field_ls).distinct(*distinct_field_ls)  # bug: distinct_field_ls 后的字段无法排序
 
         # order_by操作
-        if order_type_ls:
+        if pure.convert_query_parameter_to_bool(order_type_ls):
             if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
                 qs_ls = self.queryset.filter(pk__in=qs_ls.values('pk'))
 
@@ -279,6 +283,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             except ValueError as e:
                 msg = f'参数order_type_ls指定的排序字段[{order_type_ls}]排序失败! 更多信息: {str(e)}'
                 raise ValueError(msg)
+        else:
+            qs_ls = order_by_order_type_ls(qs_ls, ['pk'])       # 默认按照pk排序
 
         self.queryset = qs_ls
         return self.queryset
@@ -372,8 +378,19 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         query_dc = self.get_request_data()
         page_size = query_dc.get('page_size', self.pagination_class.page_size)
 
+        GET_ALL = -999      # 获取全部
         p = query_dc.get('p', 1)
-        my_api_assert_function(int(p) != 0, '页码p的值不能为0!')
+
+        try:
+            p = int(p)
+
+            if p == GET_ALL or int(page_size) == GET_ALL:
+                p = 1
+                page_size = 999999999
+
+            my_api_assert_function(p > 0, f'页码p[{p}]必须为[正整数]!')
+        except Exception as e:
+            my_api_assert_function(0, f'页码[p: {p}] 必须为[正整数]!')
 
         context = self.get_serializer_context()
 
@@ -405,6 +422,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
         if get_type == 'list':
             data = get_list(query_dc, key)
+            # if data == ['']:
+            #     data = []
         elif get_type == 'bool':
             value = query_dc.get(key)
             if value is not None:

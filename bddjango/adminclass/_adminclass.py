@@ -32,6 +32,7 @@ import csv
 import datetime
 import threading
 import numpy as np
+import pandas as pd
 import xlrd
 import os
 from openpyxl import Workbook
@@ -43,16 +44,20 @@ from django.contrib import admin
 from django.contrib import messages
 from django.utils.http import urlquote
 
+from .. import get_model_max_id_in_db
 from .. import reset_db_sequence
 from ..pure import remove_temp_file
 
+import shutil
 # --- 初始化环境 ---
 from .admin_env_init import CHANGE_LIST_HTML_PATH, TEMPDIR, BD_USE_GUARDIAN, CHANGE_FORM_TEMPLATE, BD_USE_SIMPLEUI
-from .admin_env_init import BD_USE_AJAX_ADMIN
 from tqdm import tqdm
 from pandas._libs.tslibs.timestamps import Timestamp
-from bddjango import get_base_model, get_model_max_id_in_db
+from bddjango import get_base_model, get_model_max_id_in_db, old_get_model_max_id_in_db
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+import datetime as dt
+from bdtime import tt
+import time
 import pandas as pd
 from django.contrib.auth import get_permission_codename
 import re
@@ -61,17 +66,15 @@ import html
 
 IAdmin = admin.ModelAdmin
 
-
-if BD_USE_SIMPLEUI and BD_USE_AJAX_ADMIN:
+if BD_USE_SIMPLEUI:
     from simpleui.admin import AjaxAdmin
-
     IAdmin = AjaxAdmin
 
 if BD_USE_GUARDIAN:
-    from guardian.admin import GuardedModelAdminMixin
+    from guardian.admin import GuardedModelAdmin
 
-    class IAdmin(GuardedModelAdminMixin, IAdmin):
-        change_form_template = CHANGE_FORM_TEMPLATE
+    IAdmin = GuardedModelAdmin
+    IAdmin.change_form_template = CHANGE_FORM_TEMPLATE
 
 
 class IDAdmin(IAdmin):
@@ -101,6 +104,36 @@ class IDAdmin(IAdmin):
             reset_db_sequence(obj)
             # obj.id = get_model_max_id_in_db(get_base_model(obj))
             obj.save()
+
+
+if 0:
+    from guardian.admin import GuardedModelAdmin
+
+
+    class BaseGuarDianAdmin(GuardedModelAdmin):
+        """
+        * 保存时自动处理id, 解决postgre在批量导入数据后的主键冲突问题.
+
+        - 该方法仅对admin界面手动保存时调用的save_model()方法生效, 不影响obj.save()方法效率.
+        """
+        change_form_template = CHANGE_FORM_TEMPLATE
+
+        def save_model(self, request, obj, form, change):
+            """
+            参数change分辨保存or修改.
+            若为保存, 则model的id值自动更新为数据库中最大id+1.
+            """
+            try:
+                obj.save()
+            except Exception as e:
+                msg = f'可能为pgsql的id引起的错误:' + str(e)
+
+                print(msg)
+                reset_db_sequence(obj)
+                obj.save()
+
+
+    IDAdmin = BaseGuarDianAdmin
 
 
 # --- 处理df中的特殊格式
@@ -705,6 +738,9 @@ class PureAdmin(admin.ModelAdmin):
         return super().changelist_view(request, extra_context)
 
 
+# BaseAdmin = ForceRunActionsAdmin
+
+
 class BaseAdmin(ForceRunActionsAdmin):
     """
     # 若search_term以变量prefix的值开头, 则检索最近xx条记录.
@@ -718,30 +754,14 @@ class BaseAdmin(ForceRunActionsAdmin):
     _tmp = None
     orm_executor = True     # 使用orm过滤器
 
-    _ajax_search_term = None        # 用来ajax过滤
-    _ajax_return_qs_ls = None       # 以便使用ajax方法返回的qs_ls
-
     def get_search_results(self, request, queryset, search_term):
         if not self.orm_executor:
             ret = super().get_search_results(request, queryset, search_term)
             return ret
 
-        # --- 根据ajax方法返回qs_ls
-        bd_ajax_return_qs_ls = '_ajax_return_qs_ls'
-        if hasattr(self, bd_ajax_return_qs_ls) and getattr(self, bd_ajax_return_qs_ls) is not None:
-            queryset = getattr(self, bd_ajax_return_qs_ls)
-            setattr(self, bd_ajax_return_qs_ls, None)
-            ret = (queryset, False)
-            return ret
-
-        # --- 根据orm语句进行过滤
         prefix = '~'  # 反向过滤~pk
 
         reg = re.compile(r'^\..*?[\)\]]$')  # 让.filter(xxx), .order_by(xxx)等orm语句可以执行
-
-        if hasattr(self, '_ajax_search_term') and getattr(self, '_ajax_search_term'):
-            search_term = self._ajax_search_term
-            self._ajax_search_term = None
 
         if search_term and reg.match(search_term):
             print('search_term: ', search_term)

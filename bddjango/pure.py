@@ -143,7 +143,7 @@ def convert_query_parameter_to_bool(query_parameter, false_ls=None):
     :return: bool, true or false
     """
     if false_ls is None:
-        false_ls = ['0', 0, None, 'None', 'Null', [], {}, 'False', 'false', '', 'null']
+        false_ls = ['0', 0, None, 'None', 'Null', [], [''], {}, 'False', 'false', '', 'null']
     ret = query_parameter not in false_ls
     return ret
 
@@ -275,3 +275,83 @@ class SetUtils:
 
 set_utils = SetUtils()
 
+
+# def create_db_if_not_exist(pg_conf, use_zhparser=True, debug=False):
+#     from psycopg2 import connect
+#     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+#
+#     assert 'postgresql' in pg_conf.get('ENGINE'), '本方案仅支持postgresql数据库!'
+#
+#     db_name = pg_conf.get('NAME')       # 想新建的数据库名
+#
+#     user = pg_conf.get('USER')
+#     pwd = pg_conf.get('PASSWORD')
+#     port = pg_conf.get('PORT')
+#     host = pg_conf.get('HOST')
+#
+#     conn = connect(database="postgres", port=port, host=host, user=user, password=pwd)
+#
+#     conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+#
+#     cursor = conn.cursor()
+#
+#     # 创建数据库
+#     sql = f"SELECT u.datname FROM pg_catalog.pg_database u where u.datname='{db_name}';"
+#     cursor.execute(sql)
+#
+#     row = cursor.fetchall()
+#     if row:
+#         msg = f'已存在数据库[{db_name}]!'
+#         if debug:
+#             print(msg)
+#     else:
+#         sql = "CREATE DATABASE {};".format(db_name)     # pg不支持 CREATE DATABASE XXX IF NOT EXISTS;
+#         cursor.execute(sql)
+#
+#         msg = f'数据库[{db_name}]创建成功.'
+#         print(msg)
+#
+#     cursor.close()
+#     return msg
+#
+#
+# def is_exist_table_in_db(pg_conf, table_name, debug=False):
+#     """
+#     判断db中是否已经迁移好了表table_name
+#     """
+#     from psycopg2 import connect
+#
+#     assert 'postgresql' in pg_conf.get('ENGINE'), '本方案仅支持postgresql数据库!'
+#
+#     db_name = pg_conf.get('NAME')       # 想新建的数据库名
+#     user = pg_conf.get('USER')
+#     pwd = pg_conf.get('PASSWORD')
+#     port = pg_conf.get('PORT')
+#     host = pg_conf.get('HOST')
+#
+#     conn = connect(database=db_name, port=port, host=host, user=user, password=pwd)
+#     cursor = conn.cursor()
+#
+#     # 判断表是否存在
+#     sql = f"SELECT count(*) FROM {table_name};"
+#
+#     try:
+#         exist_flag = True
+#         cursor.execute(sql)
+#     except Exception as e:
+#         exist_flag = False
+#         if debug:
+#             print('*** is_exist_table_in_db error: ', e)
+#
+#     if debug:
+#         print('--- is_exist_table_in_db:', exist_flag)
+#     cursor.close()
+#     return exist_flag
+#
+#
+# def judge_db_is_migrating():
+#     import sys
+#     if 'makemigrations' in sys.argv or 'migrate' in sys.argv:
+#         return True
+#     else:
+#         return False
