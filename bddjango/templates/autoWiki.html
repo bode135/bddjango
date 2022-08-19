@@ -16,17 +16,40 @@
 
 ## 请求方式
 
-- {{ context_request_type }}
+{% if view_class_type == "CompleteModelView" %}
+- GET查, POST增, PUT改, DELETE删
+{% elif context_request_type == "BaseListView" %}
+- GET
+{% elif context_request_type == "AdvancedSearchView" %}
+- POST
+{% else %}
+- 其它
+{% endif %}
 
 
 
 ## 请求参数
 
-- 基本参数: 参考[API文档格式说明](https://gitee.com/LoongText/haiNanJieBangGuaShuaiPingTai_dj2138/wikis/%E5%89%8D%E5%8F%B0%E9%A1%B5%E9%9D%A2/%E4%B8%93%E5%AE%B6%E4%BA%BA%E6%89%8D/API%E6%96%87%E6%A1%A3%E6%A0%BC%E5%BC%8F%E8%AF%B4%E6%98%8E)
+
+- 基本参数
+
+| 类型 | 参数名            | 说明                                                    | 必填 |
+| ---- | ----------------- | ------------------------------------------------------- |--- |
+| int  | p                 | 页码                                                    | 否 |
+| int  | page_size         | 每页数量                                                | 否 |
+| list | order_type_ls     | 排序字段名, 如`-id`为倒序排列                             | 否 |
+
+- 过滤字段
+
+> 默认精确检索. 模糊检索示例: `{{ '{{' }}字段名{{ '}}' }}__icontains=xxx`, 如`name__icontains=张`
+
+{#{{ parameters_explain }}#}
+{{ filter_fields__doc }}
 
 
 
 ## 请求示例
+
 
 ```
 {{ introduction_url }}
@@ -35,6 +58,7 @@
 
 
 ## 返回示例
+
 
 ```
 
@@ -46,16 +70,33 @@
 
 ## 返回参数说明
 
+
+- 基本参数
+
+| 类型 | 参数名 | 说明        |
+| ---- | ------ | ----------- |
+| int  | status | 200,201成功 |
+| int  | msg    | 信息        |
+| dict | result | 返回结果    |
+
+- `result`中的`page_dc`页码信息
+
+| 类型 | 参数名      | 说明     |
+| ---- | ----------- | -------- |
+| int  | count_items | 总条数   |
+| int  | total_pages | 总页数   |
+| int  | page_size   | 每页条数 |
+| int  | p           | 当前页   |
+
+- 模型字段
+
 {{ parameters_explain }}
 
 
 
 ## 备注
 
-- 无
-
-
-
-
+- {{ context_request_type }}
+- [API文档格式说明](https://wiki-bddjango.readthedocs.io/zh/latest/FormatDescription/ "点击跳转")
 
 

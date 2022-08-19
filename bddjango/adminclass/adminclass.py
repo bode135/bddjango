@@ -222,6 +222,8 @@ class ExportExcelMixin:
     add_index = False
 
     def export_as_excel(self, request, queryset=None, model=None, extra_fields_dc=None, add_index_column=0, ordering=None):
+        from django.db import models as m
+
         if model is None:
             # 如果没有指定model, 则采用默认的model, 并导出全部
             if hasattr(self, 'model'):
@@ -240,7 +242,55 @@ class ExportExcelMixin:
         if extra_fields_dc:
             conv_name_to_verbose_dc.update(extra_fields_dc)
 
-        if model is None:
+        if 1:
+            response = HttpResponse(content_type='application/msexcel')
+            filename = urlquote(f"{meta.verbose_name}.xlsx")
+            response['Content-Disposition'] = f'attachment; filename={filename}'
+            wb = Workbook()
+            ws = wb.active
+
+            if self.export_asc:
+                if queryset.count() and hasattr(queryset[0], 'id'):
+                    queryset = queryset.order_by('id')
+            ws.append(verbose_names)
+
+            total = queryset.count()
+            tq = tqdm(total=total)
+            for obj in queryset:
+                tq.update(1)
+
+                # data = [f'{getattr(obj, field)}' for field in field_names]
+                data = []
+                for field_index in range(len(meta.fields)):
+                    _meta_field = meta.fields[field_index]
+                    field_name = _meta_field.name
+                    from ..django.utils import get_field_type_in_db, get_field_type_in_py
+
+                    if isinstance(_meta_field, m.ForeignKey):
+                        print('外键!', field_name, get_field_type_in_db(obj, field_name))
+
+                        to_field = _meta_field.to_fields[0]
+                        to_field = to_field if to_field else 'pk'
+                        field_value = getattr(obj, field_name)
+                        field_value = getattr(field_value, to_field)
+                    else:
+                        field_value = getattr(obj, field_name)
+
+                    if get_field_type_in_py(obj, field_name) in ['int', 'float']:
+                        data.append(field_value)
+                    else:
+                        data.append(f'{field_value}')
+
+                try:
+                    ws.append(data)
+                except Exception as e:
+                    print(data)
+                    raise e
+            wb.save(response)
+            return response
+
+        # if model is None:
+        else:
             """
             导出全部的时候, 大文件用流媒体传输, 并分批次读入, 防止超过云服务器带宽.
             未完待续...
@@ -298,30 +348,6 @@ class ExportExcelMixin:
             response['Content-Disposition'] = 'attachment;filename="{0}"'.format(filename)
 
             print('return response', tt.now(2))
-            return response
-        else:
-            response = HttpResponse(content_type='application/msexcel')
-            filename = urlquote(f"{meta.verbose_name}.xlsx")
-            response['Content-Disposition'] = f'attachment; filename={filename}'
-            wb = Workbook()
-            ws = wb.active
-
-            if self.export_asc:
-                if queryset.count() and hasattr(queryset[0], 'id'):
-                    queryset = queryset.order_by('id')
-            ws.append(verbose_names)
-
-            total = queryset.count()
-            tq = tqdm(total=total)
-            for obj in queryset:
-                tq.update(1)
-                data = [f'{getattr(obj, field)}' for field in field_names]
-                try:
-                    ws.append(data)
-                except Exception as e:
-                    print(data)
-                    raise e
-            wb.save(response)
             return response
 
     export_as_excel.short_description = "导出所选数据"
@@ -446,7 +472,22 @@ class ImportAdmin(IDAdmin):
                         attr = getattr(self.model, title_i)
                         if not hasattr(attr, 'field'):
                             continue
+
                         attr_field_name = attr.field.__class__.__name__
+
+                        if attr_field_name in ['ForeignKey', 'OneToOneField', 'ManyToManyField']:
+                            # print(f'处理外键字段 --- {title_i} --- {content_ls[i]}')
+                            _meta_field = meta.fields[i]
+                            from bdtime import show_json, show_ls
+                            # show_json(_meta_field.__dict__)
+                            related_model = _meta_field.related_model
+                            to_field = _meta_field.to_fields[0]
+                            to_field = to_field if to_field else 'pk'
+                            field_value = content_ls[i]
+                            _obj_qs_ls = related_model.objects.filter(**{to_field: field_value})
+                            assert _obj_qs_ls.exists(), f'第[{i}]行外键[{title_i}]列找不到对应[{related_model._meta.verbose_name}_{to_field}={field_value}]的值!'
+                            _obj = _obj_qs_ls[0]
+                            content_ls[i] = _obj
 
                         if attr_field_name in ['DateField', 'DateTimeField']:
                             # print(i, title_i, content_ls[i])
@@ -477,7 +518,23 @@ class ImportAdmin(IDAdmin):
 
                 return redirect("..")
         except Exception as e:
-            self.message_user(request, f"第 {index+1} 条数据导入失败!</br>错误信息：&nbsp;" + str(e), level=messages.ERROR)
+            msg = f"第 {index+1} 条数据导入失败!</br>错误信息：&nbsp;" + str(e)
+
+            ret_restful_api = request._post.get('ret_restful_api')  # 是否返回RestfulAPI格式
+
+            from ..pure import convert_query_parameter_to_bool
+
+            if not convert_query_parameter_to_bool(ret_restful_api):
+                self.message_user(request, msg, level=messages.ERROR)
+            else:
+                # from ..django.utils import my_api_assert_function, APIResponse
+                # my_api_assert_function(False, msg)
+                from django.http import JsonResponse
+                # return APIResponse(ret=None, msg=msg, status=404)
+                return JsonResponse(data={
+                    'status': 'error',
+                    'msg': msg
+                })
             return redirect("..")
 
         form = CsvImportForm()

@@ -53,8 +53,16 @@ def version():
         - 修复Mixin后置导致的Guadian失效的bug     # 2.4.8
         - 增加_ajax_return_qs_ls, 以便admin中的ajax方法返回qs_ls      # 2.4.9
         - django.utils.get_field_names_by_model增加`field_attr`, 以便获取[name, verbose_name]
+        - BaseListView再次简化, 省略get_base_serializer步骤, 只需要list_fields和retrieve_fields即可       # 2.5.0
+        - `.django.utils.get_field_names_by_model`增加`exclude_ls`功能, 并按原模型字段顺序排序
+        - 完善高级检索功能, AddQS现在支持无限Q_ls的嵌套了     # 2.5.1
+        - 过滤条件fn以`__isnull`结尾时, value自动转换为bool类型        # 2.6.0
+        - autoWiki兼容list_fields和retrieve_fields
+        - adminclass.MyAjaxAdmin导致和simpleui耦合              # 2.6.1
+        - admin导入导出功能增加对外键的支持                       # 2.6.2
+        - autoWiki模板优化
     """
-    v = "2.4.9"  # 当前: 2.4.9
+    v = "2.6.2"  # 当前: 2.6.2
     return v
 
 

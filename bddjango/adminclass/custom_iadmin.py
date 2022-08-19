@@ -774,7 +774,8 @@ def get_base_admin_dc_by_iadmin(iadmin=IAdmin, key='BaseAdmin') -> adminclass.Ba
     return admin_class
 
 
-MyAjaxAdmin: adminclass.BaseAdmin = get_base_admin_dc_by_iadmin(AjaxAdmin)
+if BD_USE_SIMPLEUI:
+    MyAjaxAdmin: adminclass.BaseAdmin = get_base_admin_dc_by_iadmin(AjaxAdmin)
 
 
 class CustomIAdmin:

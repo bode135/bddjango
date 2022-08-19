@@ -28,6 +28,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     auto_generate_serializer_class = False
     base_fields = '__all__'  # 当auto_generate_serializer_class为True时, 将自动生成序列化器, 然后根据base_fields返回字段
 
+    list_fields = None
+    retrieve_fields = None
     retrieve_serializer_class = None  # retrieve对应的serializer_class
     list_serializer_class = None  # list对应的serializer_class
 
@@ -42,6 +44,27 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     convert_to_bool_flag = 'bool__'                       # 将特定格式强制转换为布尔变量, 如 `名字不为空: name__isnull=bool_0`
     negative_flag = '!'                                   # filter_fields 条件取否时使用, 如: `id不等于1: !id=1`
+
+    def __new__(cls, *args, **kwargs):
+        ret = super().__new__(cls, *args, **kwargs)
+
+        if cls.list_serializer_class is None and cls.list_fields is not None:
+            cls.list_serializer_class = get_base_serializer(cls.queryset, base_fields=cls.list_fields)
+
+        if cls.retrieve_serializer_class is None and cls.retrieve_fields is not None:
+            if cls.retrieve_fields == '__all__':
+                cls.retrieve_serializer_class = get_base_serializer(
+                    cls.queryset,
+                    base_fields=cls.retrieve_fields,
+                    auto_generate_annotate_fields=cls.list_fields
+                )
+            else:
+                cls.retrieve_serializer_class = get_base_serializer(
+                    cls.queryset,
+                    base_fields=cls.retrieve_fields,
+                )
+
+        return ret
 
     def get(self, request, *args, **kwargs):
         """
@@ -361,6 +384,9 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                         # print(fn, value)
                         convert_to_bool_flag = self.convert_to_bool_flag
                         if isinstance(value, str) and value.startswith(convert_to_bool_flag):
+                            value = pure.convert_query_parameter_to_bool(value[len(convert_to_bool_flag):])
+
+                        if isinstance(value, str) and fn.endswith('__isnull'):
                             value = pure.convert_query_parameter_to_bool(value[len(convert_to_bool_flag):])
 
                         dc = {fn: value}

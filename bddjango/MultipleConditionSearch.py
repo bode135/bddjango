@@ -11,6 +11,36 @@ from .django import my_api_assert_function
 from .django import conv_to_queryset
 
 
+def is_leaf(Q_ls):
+    """
+    判断`Q_ls`是否为叶子节点
+    """
+    if isinstance(Q_ls, dict):
+        Q_ls = Q_ls.get('Q_ls')
+
+    ret = True
+
+    if Q_ls is None:
+        return ret
+
+    for Q_i in Q_ls:
+        if 'Q_ls' in Q_i:
+            ret = False
+    return ret
+
+
+def add_qs(QS, qs, add_logic):
+    if add_logic == 'and':
+        QS.add(qs, Q.AND)
+    elif add_logic == 'or':
+        QS.add(qs, Q.OR)
+    elif add_logic == 'not':
+        QS.add(~qs, Q.AND)
+    else:
+        raise ValueError(f'add_logic must choice in [and, or, not]!')
+    return QS
+
+
 class SingleConditionSearch:
     """
     # 单一条件检索
@@ -98,7 +128,7 @@ class SingleConditionSearch:
 
         suffix = get_suffix_by_accuracy(accuracy)
         if suffix:
-            cmd = f'self.qs = Q({search_field}__{suffix}="{search_keywords}")'      # isnull时应转为bool! 待完善.
+            cmd = f'self.qs = Q({search_field}__{suffix}="{search_keywords}")'  # isnull时应转为bool! 待完善.
         else:
             cmd = f'self.qs = Q({search_field}="{search_keywords}")'
 
@@ -150,13 +180,13 @@ class MultipleConditionSearch:
         self.QS = Q()
 
         self.queryset = []
-        self.condition_ls = condition_ls        # 检索条件
+        self.condition_ls = condition_ls  # 检索条件
         self.model = model
 
         class MySingleConditionSearch(SingleConditionSearch):
             model = self.model
 
-        self.SingleConditionSearch = MySingleConditionSearch      # 检索类型
+        self.SingleConditionSearch = MySingleConditionSearch  # 检索类型
         assert MySingleConditionSearch.model is not None, '请指定SingleConditionSearch的model类型!'
 
     def add_q(self, q, add_type: str):
@@ -191,10 +221,17 @@ class MultipleConditionSearch:
         按条件列表补充QS
         """
         condition_ls = self.condition_ls
+
         if not condition_ls or isinstance(condition_ls[0], list):
             return self.QS
 
         for condition in condition_ls:
+            if condition.get('Q_ls'):
+                print('这个是复合条件, 还不能处理 --- ', condition)
+                continue
+                # mcs = MultipleConditionSearch(self.queryset, condition)
+                # mcs.add_multiple_conditions()
+
             # print('检索前:', self.QS, '******', condition)
             self.add_single_condition(condition)
 
@@ -251,6 +288,8 @@ class AddQ:
     ]
     """
 
+    debug = False
+
     def __init__(self, Q_add_ls):
         self.Q_add_ls = Q_add_ls
         self.QS = Q()
@@ -263,22 +302,54 @@ class AddQ:
         qs = mcs.add_multiple_conditions()
         return qs
 
-    def get_QS(self):
+    def _QS_add_leaf_Q_i(self, QS, Q_i):
+        add_logic = Q_i.get('add_logic')
+        qs_ls = Q_i.get('Q_ls')
+        qs = self._get_QS_i(qs_ls)
+        QS = add_qs(QS, qs, add_logic)
+        return QS
 
-        for Q_add_i in self.Q_add_ls:
-            add_logic = Q_add_i.get('add_logic')
-            qs_ls = Q_add_i.get('Q_ls')
-            qs = self._get_QS_i(qs_ls)
+    def log(self, msg):
+        if self.debug:
+            print(msg)
 
-            if add_logic == 'and':
-                self.QS.add(qs, Q.AND)
-            elif add_logic == 'or':
-                self.QS.add(qs, Q.OR)
-            elif add_logic == 'not':
-                self.QS.add(~qs, Q.AND)
+    def _recursive_get_QS(self, Q_ls, QS=None, node_name=None):
+        QS = Q() if QS is None else QS
+
+        if node_name is None:
+            self.log('\n\n=============================\n')
+
+        self.log(f'*** 正在处理 node_name: [{node_name}] ***')
+
+        for Q_i in Q_ls:
+            _node_name = Q_i.get('node_name')
+
+            self.log(f'---------- _node_name: {_node_name} --- is_leaf: {is_leaf(Q_i)}')
+
+            if not is_leaf(Q_i):
+                qs = Q()
+                _Q_ls = Q_i.get("Q_ls")
+                qs = self._recursive_get_QS(_Q_ls, qs, _node_name)
+                _add_logic = Q_i.get('add_logic')
+                add_qs(QS, qs, _add_logic)
+
+                # print('这个是复合条件, 需要递归处理 _node_name --- ', _node_name)
+                self.log(f'*** _node_name: [{_node_name}] --- QS: [{QS}] --- \n\n')
+
+
             else:
-                raise ValueError(f'add_logic must choice in [and, or, not]!')
+                QS = self._QS_add_leaf_Q_i(QS, Q_i)
 
+        if node_name is None:
+            self.log(f'node_name[{node_name}] --- QS --- {QS} \n\n')
+        return QS
+
+    def get_QS(self, Q_ls=None):
+        Q_ls = Q_ls if Q_ls is not None else self.Q_add_ls
+
+        QS = self._recursive_get_QS(Q_ls)
+
+        self.QS = QS
         return self.QS
 
 
@@ -338,7 +409,7 @@ class AdvancedSearchView(BaseListView):
     }
     """
     _name = 'AdvancedSearchView'
-    
+
     queryset = None
     serializer_class = None
     Q_ls = None
@@ -347,9 +418,9 @@ class AdvancedSearchView(BaseListView):
     search_conf = None
     search_ls_dc = None
     DEFAULT_CONF = {
-        'add_logic_external': 'and',        # list外部的合并逻辑
-        'add_logic_internal': 'or',         # list内部的合并逻辑
-        'accuracy': 1                       # 匹配模式
+        'add_logic_external': 'and',  # list外部的合并逻辑
+        'add_logic_internal': 'or',  # list内部的合并逻辑
+        'accuracy': 1  # 匹配模式
     }
 
     search_condition_ls = None
@@ -361,7 +432,11 @@ class AdvancedSearchView(BaseListView):
 
     def get_Q_add_ls(self):
         key = 'Q_add_ls'
-        ret = self.get_key_from_query_dc_or_self(key, get_type='list')
+        ret_1 = self.get_key_from_query_dc_or_self(key, get_type='list')
+
+        key = 'Q_ls'  # 兼容Q_ls
+        ret_2 = self.get_key_from_query_dc_or_self(key, get_type='list')
+        ret = ret_1 or ret_2
         return ret
 
     def get_search_condition_ls(self):
@@ -374,7 +449,7 @@ class AdvancedSearchView(BaseListView):
         # ret = super().get_queryset()        # 默认返回所有
         ret = conv_to_queryset(self.queryset)
 
-        search_ls_dc = self.get_key_from_query_dc_or_self('search_ls_dc')        # 将列表查询search_ls转换为Q_add_ls中的条件
+        search_ls_dc = self.get_key_from_query_dc_or_self('search_ls_dc')  # 将列表查询search_ls转换为Q_add_ls中的条件
         Q_add_ls = self.get_Q_add_ls()
 
         if Q_add_ls or search_ls_dc:
@@ -443,7 +518,3 @@ class AdvancedSearchView(BaseListView):
                 ret = super().get_queryset()
 
         return ret
-
-
-
-

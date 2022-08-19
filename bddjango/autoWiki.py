@@ -90,9 +90,9 @@ class AutoWiki(APIView):
         vs = []
         for f in func_ls:
             md = getattr(views, f)
-            if hasattr(md, 'queryset') and hasattr(md, 'serializer_class'):
+            if hasattr(md, 'queryset') and (hasattr(md, 'serializer_class') or hasattr(md, 'list_fields') or hasattr(md, 'retrieve_fields')):
                 print('---------', f, md)
-                if getattr(md, 'queryset') is not None and (getattr(md, 'serializer_class') or getattr(md, 'list_serializer_class') or getattr(md, 'auto_generate_serializer_class') or getattr(md, 'retrieve_serializer_class')):
+                if getattr(md, 'queryset') is not None and (getattr(md, 'serializer_class') or getattr(md, 'list_serializer_class') or getattr(md, 'auto_generate_serializer_class') or getattr(md, 'retrieve_serializer_class')) or getattr(md, 'list_fields') or getattr(md, 'retrieve_fields'):
                     if not view_class_name or f in view_class_name:
                         s += 1
                         print(f, md)
@@ -182,10 +182,16 @@ class AutoWiki(APIView):
 
             output_to_file_and_prt()
 
+            filter_fields = None
             if hasattr(v, 'filter_fields'):
                 if v.filter_fields:
                     output_to_file_and_prt('------------ 过滤字段')
                     output_to_file_and_prt(f"`{v.filter_fields}`")
+
+                    filter_fields = v.filter_fields
+                    if filter_fields == []:
+                        filter_fields = None
+
                     res_context_dc['filter_fields'] = str(v.filter_fields)  # context: 请求URL
                     output_to_file_and_prt()
 
@@ -209,6 +215,17 @@ class AutoWiki(APIView):
                 # v__serializer_class(v__queryset, many=True).data
                 # v__serializer_class.__dict__.get('_declared_fields')
                 v.serializer_class = v__serializer_class
+
+            if not v.serializer_class:
+                list_serializer_class = retrieve_serializer_class = None
+                if hasattr(v, 'list_fields'):
+                    list_fields = getattr(v, 'list_fields')
+                    list_serializer_class = get_base_serializer(v.queryset, list_fields)
+
+                if hasattr(v, 'retrieve_fields'):
+                    retrieve_fields = getattr(v, 'retrieve_fields')
+                    retrieve_serializer_class = get_base_serializer(v.queryset, retrieve_fields)
+                v.serializer_class = list_serializer_class or retrieve_serializer_class
 
             # --- 把serializers里面的拓展字段通过__doc__转义后加进field_names
             serializer_field_ls = v.serializer_class.__dict__.get('_declared_fields')
@@ -305,8 +322,12 @@ class AutoWiki(APIView):
             # --- 参数说明
             print(field_names, verbose_names)
 
+            filter_fields__doc =  ""
+            if filter_fields:
+                filter_fields__doc = "| 类型 | 字段名 | 说明 | 必填 |\n| --- | --- | --- | --- |\n"
+            # ss = ""
             if ADD_CAN_BE_EMPTY:
-                ss = "| 类型 | 字段名 | 说明 | 能否为空 |\n| --- | --- | --- | --- |\n"
+                ss = "| 类型 | 字段名 | 说明 | 必填 |\n| --- | --- | --- | --- |\n"
             else:
                 ss = "| 类型 | 字段名 | 说明 |\n| --- | --- | --- |\n"
 
@@ -317,16 +338,26 @@ class AutoWiki(APIView):
                 if sf == '__all__' or field_name in sf:
                     # field_type = get_field_type_in_py(md, field_name)
                     if ADD_CAN_BE_EMPTY:
-                        si = f'| {field_type} | {field_name} | {verbose_name} | {can_be_empty} |\n'
+                        must_fill = '否' if can_be_empty else '是'
+                        si = f'| {field_type} | {field_name} | {verbose_name} | { must_fill } |\n'
                     else:
                         si = f'| {field_type} | {field_name} | {verbose_name} |\n'
                 ss += si
+
+                if filter_fields and (filter_fields == '__all__' or field_name in filter_fields):
+                    filter_fields__doc += f'| {field_type} | {field_name} | {verbose_name} | 否 |\n'
 
             output_to_file_and_prt('---------- 参数说明')
             parameters_explain = ss
             output_to_file_and_prt(parameters_explain)
             res_context_dc['parameters_explain'] = str(parameters_explain)  # context: 参数说明
+
+            res_context_dc['filter_fields__doc'] = str(filter_fields__doc)  # filter_fields__doc: 过滤字段
+
             output_to_file_and_prt()
+
+            print(parameters_explain)
+
             # if convert_query_parameter_to_bool(open_output_txt_file):
             if convert_query_parameter_to_bool(path_of_jinja2_template):
                 # abs_path = os.path.join(settings.BASE_DIR, 'authors/myTestTemplates.html')

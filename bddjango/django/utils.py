@@ -98,18 +98,35 @@ def set_query_dc_value(query_dc: (QueryDict, dict), new_dc: dict):
     return query_dc
 
 
-def get_field_names_by_model(model_class, field_attr='name'):
+def get_ls_a_different_ls_b(a, b, keep_sort=True):
     """
-    获得model.meta中的字段名属性
+    列表a和列表b的差集a-b, 并保留a列表原顺序
+    """
+    ret = list(set(a) - set(b))
+    if keep_sort:
+        ret.sort(key=a.index)
+    return ret
+
+
+def get_field_names_by_model(model_class, field_attr='name', exclude_fields=None):
+    """
+    获得`model_class.meta`中的字段名属性
 
     :param model_class: 目标模型
     :param field_attr: 可取[name, verbose_name]
+    :param exclude_fields: 要排除的字段       # 差集 --> set(a).difference(set(b)), DRF在Meta中用exclude指定
     :return:
     """
     if isinstance(model_class, m.QuerySet):
         model_class = get_base_model(model_class)
+    assert hasattr(model_class, '_meta'), f'model_class没有`_meta`属性? type(model_class): {type(model_class)}'
+
     fields = model_class._meta.fields
     field_names = [getattr(field, field_attr) for field in fields]
+
+    if exclude_fields:
+        assert isinstance(exclude_fields, (list, tuple)), '`exclude_fields`必须为list或tuple类型!'
+        field_names = get_ls_a_different_ls_b(field_names, exclude_fields, keep_sort=True)
     return field_names
 
 
