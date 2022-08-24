@@ -177,6 +177,9 @@ def get_base_serializer(base_model, base_fields='__all__', auto_generate_annotat
                         ret = getattr(obj, k_name)
                     elif isinstance(obj, dict) and k_name in obj:
                         ret = obj.get(k_name)
+                    elif '__' in k_name:
+                        qs_ls = get_base_queryset(obj)
+                        ret = qs_ls.filter(pk=obj.pk).values(k_name)[0].get(k_name)
                     else:
                         msg = f'自动生成的[{k_name}]字段值为空! --- from get_base_serializer'
                         warn(msg)
@@ -256,7 +259,7 @@ def get_field_type_in_db(model, field_name):
 
 def convert_db_field_type_to_python_type(tp):
     tp = re.sub(r'\(.*\)', '', tp)      # 删除括号内的内容, 如"CharField(source='more_group.explain') "
-    if tp in ['TextField', 'CharField', 'DateField', 'FileField', 'DateTimeField']:
+    if tp in ['TextField', 'CharField', 'DateField', 'DateTimeField', 'SerializerMethodField']:
         field_type = 'str'
     elif tp in ['IntegerField', 'AutoField', 'BigAutoField']:
         field_type = 'int'
@@ -267,6 +270,8 @@ def convert_db_field_type_to_python_type(tp):
     elif '=' in tp:
         # 类, 一般返回一个dc_ls类型
         field_type = 'list'
+    # elif tp == 'FileField':
+    #     field_type = 'file'
     else:
         field_type = tp
     return field_type
@@ -366,7 +371,8 @@ def get_base_queryset(obj) -> QuerySet:
     返回所有obj类型的QuerySet
     """
     ret = get_base_model(obj)
-    ret = ret.objects.all()
+    if ret:
+        ret = ret.objects.all()
     return ret
 
 

@@ -18,12 +18,14 @@
 
 {% if view_class_type == "CompleteModelView" %}
 - GET查, POST增, PUT改, DELETE删
-{% elif context_request_type == "BaseListView" %}
+{% elif view_class_type == "BaseFullTextSearchView" %}
 - GET
-{% elif context_request_type == "AdvancedSearchView" %}
+{% elif view_class_type == "BaseListView" %}
+- GET
+{% elif view_class_type == "AdvancedSearchView" %}
 - POST
 {% else %}
-- 其它
+- 其它 {{view_class_type}}
 {% endif %}
 
 
@@ -40,10 +42,9 @@
 | list | order_type_ls     | 排序字段名, 如`-id`为倒序排列                             | 否 |
 
 - 过滤字段
-
+{% if has_filter_fields %}
 > 默认精确检索. 模糊检索示例: `{{ '{{' }}字段名{{ '}}' }}__icontains=xxx`, 如`name__icontains=张`
-
-{#{{ parameters_explain }}#}
+{% endif %}
 {{ filter_fields__doc }}
 
 
@@ -75,9 +76,9 @@
 
 | 类型 | 参数名 | 说明        |
 | ---- | ------ | ----------- |
-| int  | status | 200,201成功 |
-| int  | msg    | 信息        |
-| dict | result | 返回结果    |
+| int  | {{ response_render_format.status }} | 200,201成功 |
+| int  | {{ response_render_format.msg }}    | 信息        |
+| dict | {{ response_render_format.result }} | 返回结果    |
 
 - `result`中的`page_dc`页码信息
 

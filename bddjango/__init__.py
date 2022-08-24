@@ -61,8 +61,14 @@ def version():
         - adminclass.MyAjaxAdmin导致和simpleui耦合              # 2.6.1
         - admin导入导出功能增加对外键的支持                       # 2.6.2
         - autoWiki模板优化
+        - 清除admin导入功能的debug信息                       # 2.6.3
+        - adminclass用.filter时增加Q函数支持
+        - `get_base_serializer`增加对多层外键字段的支持
+        - 解决autoWiki的模板bug(view_class_type引起的请求方式不对)                       # 2.6.4
+        - autoWiki优化, 增加`BaseFullTextSearchView`类
+        - 增加`baseSearchView.py`, 包含中文全文检索和相关对象推荐
     """
-    v = "2.6.2"  # 当前: 2.6.2
+    v = "2.6.4"  # 当前发布: 2.6.4
     return v
 
 

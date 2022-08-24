@@ -267,8 +267,7 @@ class ExportExcelMixin:
                     from ..django.utils import get_field_type_in_db, get_field_type_in_py
 
                     if isinstance(_meta_field, m.ForeignKey):
-                        print('外键!', field_name, get_field_type_in_db(obj, field_name))
-
+                        # print('外键!', field_name, get_field_type_in_db(obj, field_name))
                         to_field = _meta_field.to_fields[0]
                         to_field = to_field if to_field else 'pk'
                         field_value = getattr(obj, field_name)
@@ -802,6 +801,7 @@ class BaseAdmin(ForceRunActionsAdmin):
 
         if search_term and reg.match(search_term):
             print('search_term: ', search_term)
+            from django.db.models import Q      # 不能删!!
 
             # html转义
             search_term = search_term.replace('`', '"')

@@ -61,6 +61,25 @@ class AutoWiki(APIView):
     open_output_txt_file = True     # `win`在运行完成后, 打开输出的`txt`文件
     path_of_jinja2_template = ABS_PATH_OF_JINJIA2_TEMPLATE       # 使用`jinja2`模板来生成`wiki`模板
 
+    # response_render_format = {
+    #     'status': 'code',
+    #     'msg': 'message',
+    #     'result': 'data',
+    # }
+    ret_dc = {
+        'status': 200,
+        'msg': 'ok',
+        'result': {
+            'page_dc': {
+                'count_items': 10,
+                'total_pages': 1,
+                'page_size': 3,
+                'p': 1,
+            },
+            'data': None,
+        },
+    }
+
     def get(self, request, *args, **kwargs):
         """自动生成wiki文档"""
         res_context_dc = {}     # 将结果变量储存为文本字典, 好用`jinja2`来填写模板
@@ -232,6 +251,7 @@ class AutoWiki(APIView):
             text = v.serializer_class.__doc__ or ""
 
             for serializer_field_i, field_type_i in serializer_field_ls.items():
+                print(serializer_field_i, field_type_i)
                 reg = re.compile(f'^.*{serializer_field_i}: +(.*?) *$', re.M)
                 match = reg.search(text)
                 if match:
@@ -239,7 +259,29 @@ class AutoWiki(APIView):
                 else:
                     verbose_name_i = serializer_field_i
 
-                field_type_i = convert_db_field_type_to_python_type(str(field_type_i).replace('()', ''))
+                _conved_flag = False
+                if isinstance(serializer_field_i, str) and '__' in serializer_field_i:
+                    fk_model_name, fk_field_name = serializer_field_i.split('__', 1)
+                    # print('--- 序列化自动生成的字段: ', fk_model_name, fk_field_name)
+                    if fk_model_name in field_names and '__' not in fk_field_name:
+                        _meta_field = meta.fields[field_names.index(fk_model_name)]
+                        # to_field = _meta_field.to_fields[0]
+                        # to_field = to_field if to_field else 'pk'
+                        _field_value = getattr(md, fk_model_name)
+                        from .django.utils import get_field_names_by_model
+                        from .django.utils import get_field_type_in_py
+
+                        related_fields = get_field_names_by_model(_meta_field.related_model)
+                        _fields = _meta_field.related_model._meta.fields
+                        _real_fk_field_name = _fields[related_fields.index(fk_field_name)].name
+                        field_type_i = get_field_type_in_py(_meta_field.related_model, _real_fk_field_name)
+                        _conved_flag = True
+                    else:
+                        if '__' in fk_field_name:
+                            print(f'*** 警告: 仅支持一层外键自动化转换类型! 自动转换失败字段: `{serializer_field_i}`')
+
+                if not _conved_flag:
+                    field_type_i = convert_db_field_type_to_python_type(str(field_type_i).replace('()', ''))
                 print(serializer_field_i, verbose_name_i, field_type_i)
                 can_be_empty_i = True
 
@@ -314,7 +356,24 @@ class AutoWiki(APIView):
                 print(dc)
 
             output_to_file_and_prt('---------- 示例数据')
-            example_data = json.dumps(dc_ls, sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
+
+            _ret_dc = self.ret_dc.copy()
+            _ret_dc['result']['data'] = dc_ls
+
+            # 整理`response`的格式
+            response_render_format = {
+                'status': 'status',
+                'msg': 'msg',
+                'result': 'result',
+            }
+            if hasattr(self, 'response_render_format') and getattr(self, 'response_render_format'):
+                response_render_format = self.response_render_format
+            res_context_dc['response_render_format'] = response_render_format
+
+            for k, v in response_render_format.items():
+                _ret_dc[v] = _ret_dc.pop(k)
+            example_data = json.dumps(_ret_dc, sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
+
             output_to_file_and_prt(example_data)
             res_context_dc['example_data'] = str(example_data)  # context: 示例数据
             output_to_file_and_prt()
@@ -322,10 +381,41 @@ class AutoWiki(APIView):
             # --- 参数说明
             print(field_names, verbose_names)
 
-            filter_fields__doc =  ""
+            # region # --- 分析属于那种请求类型`context_request_type`
+            view_class_type = 'APIView'
+            if hasattr(view_class_instance, '_name'):
+                view_class_type = getattr(view_class_instance, '_name')
+
+            post_type_ls = getattr(view_class_instance, 'post_type_ls') if hasattr(view_class_instance,
+                                                                                   'post_type_ls') else None
+
+            context_request_type = '其它'
+            if view_class_type == 'BaseListView':
+                context_request_type = '基本查找类'
+            elif view_class_type == 'CompleteModelView':
+                context_request_type = '增删查改类'
+            elif view_class_type == 'AdvancedSearchView':
+                context_request_type = '高级检索类'
+            elif view_class_type == 'BaseFullTextSearchView':
+                context_request_type = '全文检索类'
+            res_context_dc['context_request_type'] = context_request_type
+            res_context_dc['view_class_type'] = view_class_type
+            res_context_dc['post_type_ls'] = post_type_ls
+            # endregion
+
+            filter_fields__doc = ""
+            res_context_dc['has_filter_fields'] = False
             if filter_fields:
                 filter_fields__doc = "| 类型 | 字段名 | 说明 | 必填 |\n| --- | --- | --- | --- |\n"
-            # ss = ""
+                res_context_dc['has_filter_fields'] = True
+
+            if view_class_type == 'BaseFullTextSearchView':
+                filter_fields__doc = "| 类型 | 字段名 | 说明 | 必填 |\n| --- | --- | --- | --- |\n"
+                filter_fields__doc += "| str  | search_keywords   | 全文检索关键词   | 否 |\n"
+                _p = 'use_relevant_id_param'
+                if hasattr(view_class_instance, _p) and getattr(view_class_instance, _p):
+                    filter_fields__doc += "| int | relevant_id   | 将要做相关推荐的对象id     | 否 |\n"
+
             if ADD_CAN_BE_EMPTY:
                 ss = "| 类型 | 字段名 | 说明 | 必填 |\n| --- | --- | --- | --- |\n"
             else:
@@ -390,15 +480,25 @@ class AutoWiki(APIView):
                         for m_i in match:
                             m_i = m_i.strip()
                             if 'POST' in m_i:
-                                reg = re.compile(m_i + '.*?' + r'(\{.*\}).*$', re.S)      # 只能匹配POST后的一个大括号!
+                                reg = re.compile(m_i + '.*?' + r'\n.*(\{.*?\})[ \t]*\n', re.S)      # 只能匹配POST后的一个大括号!
+                                # m = reg.search(introduction)
+                                # if m:
+                                #     text = m.group(1)
+                                #     reg = re.compile('^.*(\{.*?\})\n', re.S)
+                                #     _m = reg.search(text)
+                                #     _m and print(_m.group(1))
+                                #     dc = json.dumps(json.loads(_m.group(1)), sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
                                 findall_ls = reg.findall(introduction)
+                                # print(findall_ls)
                                 if findall_ls:
                                     findall_i = findall_ls[0]
                                     try:
                                         findall_str = json.dumps(json.loads(findall_i), sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
                                     except Exception as e:
                                         e_str = '****** POST请求携带的字典错误!' + str(e)
-                                        raise ValueError(e_str)
+                                        from warnings import warn
+                                        warn(e_str)
+                                        # raise ValueError(e_str)
                                     m_i += '\n' + findall_str
                             _introduction_url.append(m_i)
                         introduction_url = '\n'.join(_introduction_url)
@@ -423,25 +523,6 @@ class AutoWiki(APIView):
                     else:
                         introduction_summary = '- ' + introduction_title
                     res_context_dc['introduction_summary'] = introduction_summary
-                # endregion
-
-                # region # --- 分析属于那种请求类型`context_request_type`
-                view_class_type = 'APIView'
-                if hasattr(view_class_instance, '_name'):
-                    view_class_type = getattr(view_class_instance, '_name')
-
-                post_type_ls = getattr(view_class_instance, 'post_type_ls') if hasattr(view_class_instance, 'post_type_ls') else None
-
-                context_request_type = '其它'
-                if view_class_type == 'BaseListView':
-                    context_request_type = '基本查找类'
-                elif view_class_type == 'CompleteModelView':
-                    context_request_type = '增删查改类'
-                elif view_class_type == 'AdvancedSearchView':
-                    context_request_type = '高级检索类'
-                res_context_dc['context_request_type'] = context_request_type
-                res_context_dc['view_class_type'] = view_class_type
-                res_context_dc['post_type_ls'] = post_type_ls
                 # endregion
 
                 # region # --- 开始填充jinja模板
