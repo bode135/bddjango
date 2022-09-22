@@ -25,6 +25,7 @@
     - has_import_perm = True                            # 导入数据
     - has_export_perm = True                            # 全部导出
     - check_import_and_export_perm = True               # 是否检查导入导出按钮的权限
+    - use_original_id = False               # 导入时保持id值的功能
 
 """
 
@@ -392,6 +393,7 @@ class ImportAdmin(IDAdmin):
     has_import_perm = True      # 导入数据
     has_export_perm = True      # 全部导出
     check_import_and_export_perm = True     # 是否检查导入导出按钮的权限
+    use_original_id = True     # 是否保留原表格的id
 
     def import_csv(self, request):
         t_import = Time()
@@ -434,7 +436,7 @@ class ImportAdmin(IDAdmin):
                     wb = xlrd.open_workbook(file_contents=read_data)
                     df = pd.read_excel(wb)
                 else:
-                    df = None
+                    raise TypeError('文件格式错误! 仅支持[csv, xls, xlsx]格式的文档.')
 
                 df_rows = df.shape[0]        # 一共多少行数据
 
@@ -463,7 +465,7 @@ class ImportAdmin(IDAdmin):
                 for index, row in df1.iterrows():
                     content_ls = row.values.tolist()
 
-                    # 处理DateField字段
+                    # 处理DateField字段 and 外键 and 主键
                     for i in range(len(title_ls)):
                         title_i = title_ls[i]
                         content_ls[i] = conv_nan(content_ls[i])
@@ -503,8 +505,12 @@ class ImportAdmin(IDAdmin):
                                 content_ls[i] = res
 
                     dc = dict(zip(title_ls, content_ls))
-                    dc.update({'id': curr_id})
-                    curr_id += 1
+
+                    if not (self.use_original_id and set(df1.columns).intersection(set(['id', 'ID']))):
+                        # 如果[不使用原始id 并且 表格中有`id`列],  则启用自定义id
+                        dc.update({'id': curr_id})
+                        curr_id += 1
+
                     md = self.model(**dc)
                     md_ls.append(md)
                     my_tqdm.update(1)

@@ -1,4 +1,5 @@
 from .utils import *
+from rest_framework.views import APIView
 
 
 class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
@@ -14,7 +15,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     _name = 'BaseListView'  # 这个在自动生成wiki时要用到
 
-    renderer_classes = (StateMsgResultJSONRenderer,)
+    # renderer_classes = (StateMsgResultJSONRenderer,)
+    # renderer_classes = APIView.renderer_classes + [StateMsgResultJSONRenderer]
 
     pagination_class = Pagination
 
@@ -44,6 +46,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     convert_to_bool_flag = 'bool__'                       # 将特定格式强制转换为布尔变量, 如 `名字不为空: name__isnull=bool_0`
     negative_flag = '!'                                   # filter_fields 条件取否时使用, 如: `id不等于1: !id=1`
+
+    # add_host_prefix_to_media_url = True                                    # 是否返回文件的时候加上当前域名的prefix
 
     def __new__(cls, *args, **kwargs):
         ret = super().__new__(cls, *args, **kwargs)
@@ -387,7 +391,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                             value = pure.convert_query_parameter_to_bool(value[len(convert_to_bool_flag):])
 
                         if isinstance(value, str) and fn.endswith('__isnull'):
-                            value = pure.convert_query_parameter_to_bool(value[len(convert_to_bool_flag):])
+                            value = pure.convert_query_parameter_to_bool(value)
 
                         dc = {fn: value}
                         if negative_flag:

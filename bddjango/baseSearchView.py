@@ -30,10 +30,12 @@ class RelevantObjectRecommendationMixin(BaseFullTextSearchMixin):
     - 启用全文检索: `search_keywords`
     - 指定`relevant_id`, 推荐该对象的相关对象
     """
+
+    use_relevant_id_param = True                # 是否启用本功能
+    relevant_base_model = None                  # 要推荐的模型, 例如推荐指定`人物表`相关的`事件表`, 默认为自身
     relevant_obj_search_fields = None           # 指定检索字段
     relevant_obj_search_levels = ['A', 'B']     # 若未指定`relevant_obj_search_fields`, 将自动选择指定等级的字段
     ret_original_data_if_not_exists = True      # 返回原始数据, 如果`search`的结果为空
-    use_relevant_id_param = True                     # 是否启用本功能
 
     def get_ordered_queryset(self):
         ret = super().get_ordered_queryset()
@@ -46,7 +48,7 @@ class RelevantObjectRecommendationMixin(BaseFullTextSearchMixin):
             obj = get_base_queryset(ret).get(id=relevant_id)        # 这个得在全局检索
             ret = ret.exclude(id=relevant_id)
             qs_ls_0 = ret       # 万一没检索到相关结果, 就返回这个
-            base_model = get_base_model(self.queryset)
+            base_model = self.relevant_base_model if self.relevant_base_model else get_base_model(self.queryset)
             assert hasattr(base_model, search_conf_name), f'base_model[{base_model}]没有search_conf_name[{search_conf_name}]!'
 
             relevant_obj_search_fields = self.relevant_obj_search_fields

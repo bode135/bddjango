@@ -67,8 +67,12 @@ def version():
         - 解决autoWiki的模板bug(view_class_type引起的请求方式不对)                       # 2.6.4
         - autoWiki优化, 增加`BaseFullTextSearchView`类
         - 增加`baseSearchView.py`, 包含中文全文检索和相关对象推荐
+        - 导入时保持id值的功能       # 2.6.5
+        - 相关推荐`RelevantObjectRecommendationMixin`增加`relevant_base_model`字段
+        - `renderer_classes`还原为APIView原始值, 避免浏览器templates功能失效
+        - autoWiki默认的`icontains`改为`contains`       # 2.6.5
     """
-    v = "2.6.4"  # 当前发布: 2.6.4
+    v = "2.6.6"  # 当前发布: 2.6.6
     return v
 
 

@@ -518,3 +518,4 @@ class AdvancedSearchView(BaseListView):
                 ret = super().get_queryset()
 
         return ret
+
