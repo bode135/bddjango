@@ -9,9 +9,9 @@ version = bddjango.version()
 # print("version ================ ", version)
 
 
-# with open("Readme.md", "r", encoding='utf-8') as fh:
+# with open("PypiReadme.md", "r", encoding='utf-8') as fh:
 #     long_description = fh.read()
-long_description = parse_from_file('Readme.md')     # .markdown必须转换为.rst, 否则有可能报错
+long_description = parse_from_file('PypiReadme.md')     # .markdown必须转换为.rst, 否则有可能报错
 
 
 setuptools.setup(
@@ -22,7 +22,7 @@ setuptools.setup(
     description="常用的django开发工具",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url='https://gitee.com/bode135/bdtools/tree/master/bddjango',   # 主页链接
+    url='https://github.com/bode135/bddjango.git',   # 主页链接
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",

@@ -1,5 +1,6 @@
 from .utils import *
 from rest_framework.views import APIView
+from .mixins import MyCreateModelMixin, MyUpdateModelMixin, MyDestroyModelMixin
 
 
 class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
@@ -15,19 +16,17 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
     _name = 'BaseListView'  # 这个在自动生成wiki时要用到
 
-    # renderer_classes = (StateMsgResultJSONRenderer,)
     # renderer_classes = APIView.renderer_classes + [StateMsgResultJSONRenderer]
-
     pagination_class = Pagination
 
-    filter_fields = []  # ['__all__']过滤所有. 精确检索的过滤字段, 如果过滤条件复杂的话, 建议重写
+    filter_fields = '__all__'  # '__all__'过滤所有. 精确检索的过滤字段, 如果过滤条件复杂的话, 建议重写
 
     order_type_ls = []
     distinct_field_ls = []
     only_get_distinct_field = False  # 仅返回distinct指定的字段
 
     serializer_class = None
-    auto_generate_serializer_class = False
+    auto_generate_serializer_class = True
     base_fields = '__all__'  # 当auto_generate_serializer_class为True时, 将自动生成序列化器, 然后根据base_fields返回字段
 
     list_fields = None
@@ -44,10 +43,14 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     post_type_ls = ["list", "retrieve", "bulk_list"]  # post请求方法
     create_unique = True  # 创建时是否允许重复
 
-    convert_to_bool_flag = 'bool__'                       # 将特定格式强制转换为布尔变量, 如 `名字不为空: name__isnull=bool_0`
+    convert_to_bool_flag = 'bool__'                       # 将特定格式强制转换为布尔变量, 如 `名字不为空: name__isnull=bool__0`
     negative_flag = '!'                                   # filter_fields 条件取否时使用, 如: `id不等于1: !id=1`
 
+    default_page_size = None        # 默认每页返回的数量
     # add_host_prefix_to_media_url = True                                    # 是否返回文件的时候加上当前域名的prefix
+
+    flat_dc_ls = False      # 是否展平为list然后返回. 只有在返回一个字段的时候才生效.
+    add_page_dc = True      # 是否增加`page_dc`
 
     def __new__(cls, *args, **kwargs):
         ret = super().__new__(cls, *args, **kwargs)
@@ -67,6 +70,12 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
                     cls.queryset,
                     base_fields=cls.retrieve_fields,
                 )
+
+        if cls.default_page_size is not None and cls.pagination_class is not None:
+            if cls.default_page_size == '__all__':
+                cls.pagination_class.page_size = -999       # 返回全部
+            else:
+                cls.pagination_class.page_size = cls.default_page_size
 
         return ret
 
@@ -278,11 +287,6 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         按order_type_ls指定的字段排序
         """
         query_dc = self.get_request_data()
-        # order_type_ls = get_list(query_dc, key='order_type_ls') \
-        #     if get_list(query_dc, key='order_type_ls') else self.order_type_ls
-
-        # distinct_field_ls = get_list(query_dc, key='distinct_field_ls')\
-        #     if get_list(query_dc, key='distinct_field_ls') else self.distinct_field_ls
 
         order_type_ls = self.get_key_from_query_dc_or_self('order_type_ls', get_type='list')
         distinct_field_ls = self.get_key_from_query_dc_or_self('distinct_field_ls', get_type='list')
@@ -300,18 +304,22 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             assert isinstance(distinct_field_ls, (list, tuple)), 'distinct_field_ls因为list或者tuple!'
             qs_ls = qs_ls.order_by(*distinct_field_ls).distinct(*distinct_field_ls)  # bug: distinct_field_ls 后的字段无法排序
 
-        # order_by操作
-        if pure.convert_query_parameter_to_bool(order_type_ls):
-            if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
-                qs_ls = self.queryset.filter(pk__in=qs_ls.values('pk'))
+        # region # --- `order_by`操作
+        if not pure.convert_query_parameter_to_bool(order_type_ls):
+            base_model = get_base_model(self.queryset)
+            ordering = base_model._meta.ordering
+            order_type_ls = ordering if ordering else ['pk']
 
-            try:
-                qs_ls = order_by_order_type_ls(qs_ls, order_type_ls)
-            except ValueError as e:
-                msg = f'参数order_type_ls指定的排序字段[{order_type_ls}]排序失败! 更多信息: {str(e)}'
-                raise ValueError(msg)
-        else:
-            qs_ls = order_by_order_type_ls(qs_ls, ['pk'])       # 默认按照pk排序
+        # 要注意进行distinct之后的排序
+        if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
+            qs_ls = self.queryset.filter(pk__in=qs_ls.values('pk'))
+
+        try:
+            qs_ls = order_by_order_type_ls(qs_ls, order_type_ls)
+        except ValueError as e:
+            msg = f'参数order_type_ls指定的排序字段[{order_type_ls}]排序失败! 更多信息: {str(e)}'
+            raise ValueError(msg)
+        # endregion
 
         self.queryset = qs_ls
         return self.queryset
@@ -427,14 +435,23 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         serializer_class = self.get_serializer_class()
         resp, page_dc = paginate_qsls_to_dcls(self.queryset, serializer_class, page=p, per_page=page_size,
                                               context=context)
-        ret = self._conv_data_format(resp, page_dc)
+        ret = self.conv_data_format(resp, page_dc)
         return ret
 
-    def conv_data_format(self, data: (dict, Response), page_dc):
-        ret = {
-            'page_dc': page_dc,
-            'data': data,
-        }
+    def conv_data_format(self, data, page_dc):
+        # --- 是否展平为list, 而不是dc_ls
+        flat_dc_ls = get_key_from_request_data_or_self_obj(self.get_request_data(), self, 'flat_dc_ls', get_type='bool')
+        if flat_dc_ls and data and len(data[0]) == 1:
+            data = [list(i.values())[0] for i in data]
+
+        add_page_dc = get_key_from_request_data_or_self_obj(self.get_request_data(), self, 'add_page_dc', get_type='bool')
+        if add_page_dc:
+            ret = {
+                'page_dc': page_dc,
+                'data': data,
+            }
+        else:
+            ret = data
         return ret
 
     def _conv_data_format(self, *args, **kwargs):
@@ -498,9 +515,6 @@ class BaseList(BaseListView):  # 向下兼容, 返回格式调整, 重写_conv_d
             'results': results,
         }
         return ret
-
-
-from .mixins import MyCreateModelMixin, MyUpdateModelMixin, MyDestroyModelMixin
 
 
 class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, MyDestroyModelMixin):
@@ -638,37 +652,4 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
         # ret = self.get_serializer_class()(qs_ls, many=True).data
         ret, status, msg = self.get_list_ret(request, *args, **kwargs)
         return APIResponse(ret, status=status, msg=msg)
-
-
-class DecoratorBaseListView(BaseListView):
-    @api_decorator
-    def get(self, request, *args, **kwargs):
-        return super().get(*args, **kwargs)
-
-    @api_decorator
-    def post(self, request, *args, **kwargs):
-        return super().post(*args, **kwargs)
-
-
-class DecoratorCompleteModelView(CompleteModelView):
-    """
-    全部用api_decorator装饰
-    """
-
-    @api_decorator
-    def get(self, request, *args, **kwargs):
-        return super().get(*args, **kwargs)
-
-    @api_decorator
-    def post(self, *args, **kwargs):
-        return super().post(*args, **kwargs)
-
-    @api_decorator
-    def put(self, request, *args, **kwargs):
-        return super().put(*args, **kwargs)
-
-    @api_decorator
-    def delete(self, request, *args, **kwargs):
-        return super().delete(*args, **kwargs)
-
 

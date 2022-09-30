@@ -590,3 +590,9 @@ class AutoWiki(APIView):
 
         # output_file.close()
         return APIResponse(ret, 200, 'ok')
+
+
+
+
+
+

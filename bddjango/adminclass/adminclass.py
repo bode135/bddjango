@@ -245,7 +245,7 @@ class ExportExcelMixin:
 
         if 1:
             response = HttpResponse(content_type='application/msexcel')
-            filename = urlquote(f"{meta.verbose_name}.xlsx")
+            filename = urlquote(f"{meta.verbose_name}.xls")
             response['Content-Disposition'] = f'attachment; filename={filename}'
             wb = Workbook()
             ws = wb.active
@@ -276,10 +276,12 @@ class ExportExcelMixin:
                     else:
                         field_value = getattr(obj, field_name)
 
-                    if get_field_type_in_py(obj, field_name) in ['int', 'float']:
+                    if get_field_type_in_py(obj, field_name) in ['int', 'float', 'bool']:
                         data.append(field_value)
+                    # if get_field_type_in_py(obj, field_name) == 'bool':
+                    #     data.append(field_value)
                     else:
-                        data.append(f'{field_value}')
+                        data.append(f'{field_value}' if field_value else field_value)
 
                 try:
                     ws.append(data)
@@ -432,11 +434,17 @@ class ImportAdmin(IDAdmin):
 
                     # 为解决字段内有逗号导致分割错误问题, 只能采用pd了
                     df = pd.read_csv(fname, encoding=encoding)
-                elif f_format in ['xlsx', 'xls']:
+                elif f_format == 'xls':
                     wb = xlrd.open_workbook(file_contents=read_data)
                     df = pd.read_excel(wb)
+                elif f_format == 'xlsx':
+                    try:
+                        wb = xlrd.open_workbook(file_contents=read_data)
+                        df = pd.read_excel(wb)
+                    except Exception as e:
+                        raise TypeError(f'文件读入错误! 可转换为`xls`格式后重试. msg: {e}')
                 else:
-                    raise TypeError('文件格式错误! 仅支持[csv, xls, xlsx]格式的文档.')
+                    raise TypeError(f'文件格式错误! 仅支持{format_ls}格式的文档.')
 
                 df_rows = df.shape[0]        # 一共多少行数据
 

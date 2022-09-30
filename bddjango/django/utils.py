@@ -78,7 +78,7 @@ def get_key_from_request_data_or_self_obj(request_data, self_obj, key, get_type=
         ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
         ret_1 = pure.convert_query_parameter_to_bool(value) if value else None
         ret = ret_1 if ret_1 is not None else ret_0
-        return ret
+        return bool(ret)
     else:
         value = query_dc.get(key)
 
@@ -96,16 +96,6 @@ def set_query_dc_value(query_dc: (QueryDict, dict), new_dc: dict):
         query_dc.setlist(key, ls)
     query_dc._mutable = False
     return query_dc
-
-
-def get_ls_a_different_ls_b(a, b, keep_sort=True):
-    """
-    列表a和列表b的差集a-b, 并保留a列表原顺序
-    """
-    ret = list(set(a) - set(b))
-    if keep_sort:
-        ret.sort(key=a.index)
-    return ret
 
 
 def get_field_names_by_model(model_class, field_attr='name', exclude_fields=None):
@@ -126,7 +116,7 @@ def get_field_names_by_model(model_class, field_attr='name', exclude_fields=None
 
     if exclude_fields:
         assert isinstance(exclude_fields, (list, tuple)), '`exclude_fields`必须为list或tuple类型!'
-        field_names = get_ls_a_different_ls_b(field_names, exclude_fields, keep_sort=True)
+        field_names = pure.SetUtils.get_ls_a_different_ls_b(field_names, exclude_fields, keep_sort=True)
     return field_names
 
 
@@ -139,6 +129,9 @@ def get_base_serializer(base_model, base_fields='__all__', auto_generate_annotat
     :param auto_generate_annotate_fields: 指定将自动生成的annotate的字段, 为[True, '__all__']时自动替换为base_fields
     :return:
     """
+    if base_fields == ['__all__']:
+        base_fields = '__all__'
+
     base_model = get_base_model(base_model)
     field_names = get_field_names_by_model(base_model)
     if base_fields != '__all__' and auto_generate_annotate_fields is None:
@@ -415,6 +408,8 @@ def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16, context=None
     }
 
     page_obj = p.get_page(page)
+
+    context = {} if not context else context        # 避免序列化报错
 
     # --- 处理单个Model和多个Model的情况
     if serializer.__class__.__name__ == 'function':
@@ -816,5 +811,47 @@ def get_total_occurrence_times_by_keywords(total_qs_ls, search_field_ls, keyword
     res_qs_ls = res_qs_ls.annotate(**{'total_occurrence_times': f_ls})
     ret = res_qs_ls
     return ret
+
+
+def get_statistic_fields_result(queryset, statistic_fields, statistic_size=5, descend=True):
+    """
+    # 统计字段 fields 的值各出现了几次
+    - statistic_fields 为迭代型时(如[name, id]), 只统计第一个字段, 然后将第二个字段用filter补上一个值
+    """
+
+    assert isinstance(statistic_fields, list), 'statistic_fields必须为list类型!'
+    statistic_size = int(statistic_size)
+
+    if descend:
+        ordering = ['-counts']
+    else:
+        ordering = ['counts']
+
+    statistic_dc = {}
+    for field in statistic_fields:
+        # break
+        if isinstance(field, (tuple, list)):
+            # field_qsv = queryset.values(*field)
+            field_qsv = queryset.values(field[0])
+            dc_name = field[0]
+        else:
+            field_qsv = queryset.values(field)
+            dc_name = field
+        statistic_qsv = field_qsv.annotate(counts=m.Count('pk')).order_by(*ordering)
+        dc_ls = list(statistic_qsv[:statistic_size])
+
+        for dc in dc_ls:
+            if isinstance(field, (tuple, list)):
+                dc['name'] = dc.pop(field[0])
+                f_name = field[1]
+                f_value = queryset.filter(**{field[0]: dc['name']}).order_by(f_name).values(f_name)[0].get(f_name)
+                dc[f_name] = f_value
+            else:
+                dc['name'] = dc.pop(field)
+        dc = {
+            dc_name: dc_ls
+        }
+        statistic_dc.update(dc)
+    return statistic_dc
 
 
