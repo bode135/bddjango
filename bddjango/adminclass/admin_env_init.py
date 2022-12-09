@@ -3,6 +3,9 @@ from django.conf import settings
 from ..pure import TEMPDIR
 
 
+DATA_UPLOAD_MAX_NUMBER_FIELDS = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+
+
 if not hasattr(settings, 'BD_USE_AJAX_ADMIN'):
     BD_USE_AJAX_ADMIN = True
 else:

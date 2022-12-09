@@ -13,5 +13,8 @@ if hasattr(settings, 'PAGINATION_SETTINGS'):
     PAGINATION_SETTINGS.update(settings.PAGINATION_SETTINGS)
 
 
+db_engine = settings.DATABASES.get('default').get('ENGINE')
+
+
 
 

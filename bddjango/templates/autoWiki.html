@@ -43,7 +43,10 @@
 
 - 过滤字段
 {% if has_filter_fields %}
-> 默认精确检索. 模糊检索示例: `{{ '{{' }}字段名{{ '}}' }}__contains=xxx`, 如`name__contains=张`
+> 默认精确检索.
+> str类型模糊检索示例: `{{ '{{' }}字段名{{ '}}' }}__icontains=xxx`, 如`name__icontains=张`.
+> 数值或者时间类型, 使用`__lte`为小于等于, `__lt`为小于, `__gte`为大于等于, `__gt`为大于. 如`id__lt=3`.
+
 {% endif %}
 {{ filter_fields__doc }}
 

@@ -43,6 +43,7 @@ from .conf import PAGINATION_SETTINGS
 from django.db import models as m
 from django.db import connection
 from copy import deepcopy
+from .conf import db_engine
 # from rest_framework import serializers
 
 
@@ -50,7 +51,7 @@ def get_list(query_dc, key):
     if isinstance(query_dc, QueryDict):
         ret = query_dc.getlist(key)
     elif isinstance(query_dc, dict):
-        ret = query_dc.get(key)
+        ret = query_dc.get(key, [])
     else:
         raise TypeError('query_dc类型不明!')
 
@@ -71,21 +72,29 @@ def get_key_from_request_data_or_self_obj(request_data, self_obj, key, get_type=
     """
     query_dc = request_data
 
+    # 让request携带的数据可以覆盖自身的key值
+    if isinstance(self_obj, dict):
+        ret_0 = self_obj.get(key)
+    else:
+        ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
+
     if get_type == 'list':
         value = get_list(query_dc, key)
+        if '__None__' in value:
+            ret = []
+        else:
+            ret = value if value not in [None, [], [''], ""] else ret_0
+        return ret
     elif get_type == 'bool':
         value = query_dc.get(key)
-        ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
+        # ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
         ret_1 = pure.convert_query_parameter_to_bool(value) if value else None
         ret = ret_1 if ret_1 is not None else ret_0
         return bool(ret)
     else:
         value = query_dc.get(key)
-
-    # 让request携带的数据可以覆盖自身的key值
-    ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
-    ret = value if value is not None else ret_0
-    return ret
+        ret = value if value is not None else ret_0
+        return ret
 
 
 def set_query_dc_value(query_dc: (QueryDict, dict), new_dc: dict):
@@ -530,16 +539,20 @@ def get_model_max_id_in_db(model):
         if ordering[0] == '-id':
             obj = model.objects.first()
             max_id = obj.id if obj else 0
-            ret = max_id + 1
+            ret = max_id + 1 if isinstance(max_id, int) else 1
             return ret
         if ordering[0] == 'id':
             obj = model.objects.last()
             max_id = obj.id if obj else 0
-            ret = max_id + 1
+            ret = max_id + 1 if isinstance(max_id, int) else 1
             return ret
     qs = model.objects.all()
-    max_id = qs.aggregate(max_id=Max('id')).get('max_id')  if qs.count() else 0
-    ret = max_id + 1
+    try:
+        max_id = qs.aggregate(max_id=Max('id')).get('max_id') if qs.count() else 0
+        ret = max_id + 1 if isinstance(max_id, int) else 1
+    except Exception as e:
+        warn(e)
+        ret = 1
     return ret
 
 
@@ -854,4 +867,31 @@ def get_statistic_fields_result(queryset, statistic_fields, statistic_size=5, de
         statistic_dc.update(dc)
     return statistic_dc
 
+
+class DjangoUtils:
+    @staticmethod
+    def distinct(qs_ls, fields):
+        """
+        对不同数据库的distince方法进行兼容
+        """
+        if isinstance(fields, str):
+            fields = [fields]
+        if 'postgresql' in db_engine:
+            ret = qs_ls.distinct(*fields)
+        else:
+            ret = qs_ls.distinct()
+        return ret
+
+    @staticmethod
+    def get_serializer_context_with_no_host_prefix_to_media_url(self):
+        """
+        将媒体文件的url去除host前缀
+        """
+        return {
+            'format': self.format_kwarg,
+            'view': self
+        }
+
+
+distinct = DjangoUtils.distinct
 

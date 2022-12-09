@@ -10,6 +10,7 @@ import threading
 import shutil
 from bdtime import Time
 import datetime as dt
+import sys
 
 
 TEMPDIR = 'tempdir'     # 临时文件夹
@@ -143,7 +144,9 @@ def convert_query_parameter_to_bool(query_parameter, false_ls=None):
     :return: bool, true or false
     """
     if false_ls is None:
-        false_ls = ['0', 0, None, 'None', 'Null', [], [''], {}, 'False', 'false', '', 'null']
+        false_ls = [
+            '0', 0, None, 'None', 'Null', [], [''], {}, 'False', 'false', '', 'null', 'F', 'f', '__None__', ['__None__']
+        ]
     ret = query_parameter not in false_ls
     return ret
 
@@ -280,4 +283,27 @@ class SetUtils:
 
 
 set_utils = SetUtils()
+
+
+def replace_path_by_platform(path):
+    assert isinstance(path, str), 'path必须为str类型!'
+    if sys.platform == 'win32':
+        path = path.replace('/', '\\')
+    else:
+        path = path.replace('\\', '/')
+    return path
+
+
+def find_indexes_in_dc_ls(dc_ls, key, value, find_all=False):
+    indexes = []
+    for i in range(len(dc_ls)):
+        dc_i = dc_ls[i]
+        for k, v in dc_i.items():
+            if k == key and v == value:
+                indexes.append(i)
+                if not find_all:
+                    break
+    return indexes
+
+
 

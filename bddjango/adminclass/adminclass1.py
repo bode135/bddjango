@@ -354,7 +354,7 @@ class ExportCsvMixin:
     export_as_csv.icon = 'fas fa-download'
 
 
-class ImportMixin:
+class ImportAdmin(IDAdmin):
     """
     导入类, CSV和Excel通用
 
@@ -840,10 +840,6 @@ class ImportMixin:
 
         ret = super().changelist_view(request, extra_context=extra_context)
         return ret
-
-
-class ImportAdmin(ImportMixin, IDAdmin):
-    pass
 
 
 class CsvImportExportAdmin(ImportAdmin, ExportCsvMixin):

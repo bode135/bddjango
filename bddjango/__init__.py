@@ -3,7 +3,7 @@ from .pure import *
 
 
 def version():
-    v = "2.8.2"
+    v = "2.9.7"
     return v
 
 
@@ -12,7 +12,7 @@ try:
 except Exception as e:
     warn('导入django失败? --- ' + str(e))
 
-try:
-    from .myFIelds import AliasField  # 这个只能在这里引用, 不然`adminclass`报错
-except Exception as e:
-    warn('导入`AliasField`失败? --- ' + str(e))
+
+def get_root_path():
+    path = os.path.dirname(__file__)
+    return path

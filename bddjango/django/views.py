@@ -1,6 +1,7 @@
 from .utils import *
 from rest_framework.views import APIView
 from .mixins import MyCreateModelMixin, MyUpdateModelMixin, MyDestroyModelMixin
+from .conf import db_engine
 
 
 class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
@@ -47,7 +48,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     negative_flag = '!'                                   # filter_fields 条件取否时使用, 如: `id不等于1: !id=1`
 
     default_page_size = None        # 默认每页返回的数量
-    # add_host_prefix_to_media_url = True                                    # 是否返回文件的时候加上当前域名的prefix
+    add_host_prefix_to_media_url = True  # 是否返回文件的时候加上当前域名的prefix
 
     flat_dc_ls = False      # 是否展平为list然后返回. 只有在返回一个字段的时候才生效.
     add_page_dc = True      # 是否增加`page_dc`
@@ -77,6 +78,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             else:
                 cls.pagination_class.page_size = cls.default_page_size
 
+        if not cls.add_host_prefix_to_media_url:
+            cls.get_serializer_context = DjangoUtils.get_serializer_context_with_no_host_prefix_to_media_url
         return ret
 
     def get(self, request, *args, **kwargs):
@@ -302,7 +305,12 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         # distinct操作
         if distinct_field_ls and distinct_field_ls not in ['__None__', ['__None__']]:
             assert isinstance(distinct_field_ls, (list, tuple)), 'distinct_field_ls因为list或者tuple!'
-            qs_ls = qs_ls.order_by(*distinct_field_ls).distinct(*distinct_field_ls)  # bug: distinct_field_ls 后的字段无法排序
+            qs_ls = distinct(qs_ls.order_by(*distinct_field_ls), distinct_field_ls)
+            # if 'postgresql' not in db_engine:
+            #     qs_ls = qs_ls.order_by(*distinct_field_ls).distinct()
+            # else:
+            #     qs_ls = qs_ls.order_by(*distinct_field_ls).distinct(
+            #         *distinct_field_ls)  # bug: distinct_field_ls 后的字段无法排序
 
         # region # --- `order_by`操作
         if not pure.convert_query_parameter_to_bool(order_type_ls):

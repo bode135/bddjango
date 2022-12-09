@@ -34,12 +34,13 @@ from .django import convert_db_field_type_to_python_type
 from .pure import convert_query_parameter_to_bool
 from .django import get_base_serializer
 from .django import my_api_assert_function
+from .pure import replace_path_by_platform
 
 
 global tmp
 
 
-RLT_PATH_OF_JINJIA2_TEMPLATE = 'templates\\autoWiki.html'       # 使用`jinja2`模板来生成`wiki`模板
+RLT_PATH_OF_JINJIA2_TEMPLATE = replace_path_by_platform('templates\\autoWiki.html')       # 使用`jinja2`模板来生成`wiki`模板
 ABS_PATH_OF_JINJIA2_TEMPLATE = os.path.join(os.path.dirname(__file__), RLT_PATH_OF_JINJIA2_TEMPLATE)
 
 
@@ -492,6 +493,7 @@ class AutoWiki(APIView):
                                 # print(findall_ls)
                                 if findall_ls:
                                     findall_i = findall_ls[0]
+                                    findall_str = ""
                                     try:
                                         findall_str = json.dumps(json.loads(findall_i), sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
                                     except Exception as e:

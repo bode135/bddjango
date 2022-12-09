@@ -1,0 +1,93 @@
+# autoCode
+
+
+
+{% if admin %}
+
+## admin.py
+
+
+```
+from . import models
+from bddjango import BaseAdmin
+
+
+@admin.register(models.{{object_name}})
+class {{object_name}}(BaseAdmin, BulkDeleteMixin):
+    actions = ['bulk_delete']
+
+```
+
+{% endif %}
+
+
+
+{% if urls %}
+
+## urls.py
+
+
+```
+from . import views
+from django.urls import re_path
+
+
+app_name = '{{app_label}}'
+
+
+urlpatterns = [
+    re_path(r'^{{ object_name }}(/$|/(?P<pk>\w+)/$)', views.{{ object_name }}.as_view()),
+]
+
+```
+
+{% endif %}
+
+
+
+{% if views %}
+
+## views.py
+
+- 注: 可用`BaseListView.add_host_prefix_to_media_url = False`取消自动给文件字段的url添加域名
+
+```
+{% if not use_complete_model_view %}
+from bddjango import BaseListView
+
+
+class {{ object_name }}(BaseListView):
+    """
+    {{verbose_name}}
+
+    GET /api/index/{{ object_name }}/    # 查, 列表页
+    GET /api/index/{{ object_name }}/1/    # 查, 详情页
+    """
+    queryset = models.{{ object_name }}
+{% else %}
+from bddjango import CompleteModelView
+
+
+class {{ object_name }}(CompleteModelView):
+    """
+    {{verbose_name}}
+
+    POST /api/index/{{ object_name }}/    # 增
+    {
+        "{{example_f_name_0}}": {{example_f_value_0}},
+        "{{example_f_name_1}}": {{example_f_value_1}},
+    }
+    DELETE /api/index/{{ object_name }}/1/    # 删
+    PUT /api/index/{{ object_name }}/1/      # 改, 携带数据的格式和POST一样
+
+    GET /api/index/{{ object_name }}/    # 查, 列表页
+    GET /api/index/{{ object_name }}/1/    # 查, 详情页
+    """
+    queryset = models.{{ object_name }}
+{% endif %}
+
+```
+
+{% endif %}
+
+

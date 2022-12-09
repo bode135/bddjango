@@ -1,0 +1,26 @@
+server {
+    listen       80;
+    server_name  _;
+    charset 'utf-8';
+
+    location / {
+        root   /opt/client/h5/dist/;
+    }
+
+    location /admin/ {
+        alias   /opt/client/admin/dist/;
+    }
+
+    location /api/media/ {
+        alias  /opt/server/media/;
+    }
+
+    location /api/static/ {
+        alias  /opt/server/static/;
+    }
+
+    location /api/ {
+        client_max_body_size 120m;
+        proxy_pass http://localhost:8000/api/;
+    }
+}
