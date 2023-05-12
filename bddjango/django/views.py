@@ -1,7 +1,10 @@
 from .utils import *
 from rest_framework.views import APIView
 from .mixins import MyCreateModelMixin, MyUpdateModelMixin, MyDestroyModelMixin
-from .conf import db_engine
+
+from bdtime import Time
+
+t1 = Time()
 
 
 class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
@@ -13,6 +16,11 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             GET /api/index/BaseList/?order_type=-id&page_size=4&p=1
         - Retrieve:
             GET /api/index/BaseList/5/
+
+    ------ 性能优化
+    - 性能优化:
+        - get_page_dc: 是否每次都返回分页信息, 设置为false或者让前端控制
+        - cache_expired_time__get_count: `get_count`的缓存时间, 设置大一点
     """
 
     _name = 'BaseListView'  # 这个在自动生成wiki时要用到
@@ -36,6 +44,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     list_serializer_class = None  # list对应的serializer_class
 
     retrieve_filter_field = 'pk'  # 详情页的查询字段名, 默认为 {{url}}/app/view/pk , 可由前端指定.
+    cache_expired_time__get_count = 0      # get_count方法的cache有效时间
 
     method = None  # 中间变量, 记录请求是什么类型, list/retrieve等
     _tmp = None  # 无意义, 用来处理数据
@@ -51,7 +60,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
     add_host_prefix_to_media_url = True  # 是否返回文件的时候加上当前域名的prefix
 
     flat_dc_ls = False      # 是否展平为list然后返回. 只有在返回一个字段的时候才生效.
-    add_page_dc = True      # 是否增加`page_dc`
+    get_page_dc = True      # 是否返回`page_dc`
 
     def __new__(cls, *args, **kwargs):
         ret = super().__new__(cls, *args, **kwargs)
@@ -120,7 +129,19 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
 
         page_size = query_dc.get('page_size', self.pagination_class.page_size)
         p = query_dc.get('p', 1)
-        data, page_dc = paginate_qsls_to_dcls(qs_ls, self.get_serializer_class(), page=p, per_page=page_size)
+        context = self.get_serializer_context()
+
+        get_page_dc = get_key_from_request_data_or_self_obj(query_dc, self, 'get_page_dc', get_type='bool')
+
+        data, page_dc = paginate_qsls_to_dcls(
+            qs_ls,
+            self.get_serializer_class(),
+            page=p,
+            per_page=page_size,
+            context=context,
+            cache_expired_time=self.cache_expired_time__get_count,
+            get_page_dc=get_page_dc,
+        )
         ret = {
             'page_dc': page_dc,
             'data': data
@@ -241,9 +262,10 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         status = 200
         msg = 'ok'
 
+        t1.__init__()
+
         # --- 得到list方法的queryset
         self.queryset = self.get_list_queryset()
-
         if not isinstance(self.queryset, QuerySet):
             self.queryset = self.queryset.objects.all()
 
@@ -254,12 +276,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         try:
             ret = self.list(request)
         except Exception as e:
-            # 页码无效的情况, 404 Not Found
             raise e
-            # ret = None
-            # my_api_assert_function(ret, f'List error! --- {e}', 404)
-            # status = 404
-            # msg = str(e)
         return ret, status, msg
 
     def get_request_data(self) -> dict:
@@ -353,7 +370,7 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
             query_dc = self.get_request_data()
             FILTER_ALL_FIELDS = True if self.filter_fields in ['__all__', ['__all__']] else False
 
-            self.queryset = self.get_queryset()
+            # self.queryset = self.get_queryset()
             base_model = get_base_model(self.queryset)
             if not base_model.objects.exists():     # exists省性能
                 return self.queryset
@@ -441,9 +458,18 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         context = self.get_serializer_context()
 
         serializer_class = self.get_serializer_class()
-        resp, page_dc = paginate_qsls_to_dcls(self.queryset, serializer_class, page=p, per_page=page_size,
-                                              context=context)
-        ret = self.conv_data_format(resp, page_dc)
+        get_page_dc = get_key_from_request_data_or_self_obj(query_dc, self, 'get_page_dc', get_type='bool')
+
+        data, page_dc = paginate_qsls_to_dcls(
+            self.queryset,
+            serializer_class,
+            page=p,
+            per_page=page_size,
+            context=context,
+            cache_expired_time=self.cache_expired_time__get_count,
+            get_page_dc=get_page_dc
+        )
+        ret = self.conv_data_format(data, page_dc)
         return ret
 
     def conv_data_format(self, data, page_dc):
@@ -452,8 +478,8 @@ class BaseListView(ListModelMixin, RetrieveModelMixin, GenericAPIView):
         if flat_dc_ls and data and len(data[0]) == 1:
             data = [list(i.values())[0] for i in data]
 
-        add_page_dc = get_key_from_request_data_or_self_obj(self.get_request_data(), self, 'add_page_dc', get_type='bool')
-        if add_page_dc:
+        get_page_dc = get_key_from_request_data_or_self_obj(self.get_request_data(), self, 'get_page_dc', get_type='bool')
+        if get_page_dc:
             ret = {
                 'page_dc': page_dc,
                 'data': data,
@@ -578,7 +604,7 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
         elif post_type == 'bulk_list':
             return self.bulk_list(request, *args, **kwargs)
         else:
-            return APIResponse(None, status=404, msg='请指定post操作类型, [create, update, delete]?')
+            return APIResponse(None, status=404, msg=f'请指定受支持的post操作类型: {self.post_type_ls}?')
 
     def delete(self, request, *args, **kwargs):
         """删"""
@@ -660,4 +686,49 @@ class CompleteModelView(BaseListView, MyCreateModelMixin, MyUpdateModelMixin, My
         # ret = self.get_serializer_class()(qs_ls, many=True).data
         ret, status, msg = self.get_list_ret(request, *args, **kwargs)
         return APIResponse(ret, status=status, msg=msg)
+
+
+class AddTimes(APIView):
+    """
+    # 推荐次数加一
+
+    - 指定model和pk, 其field_name对应的times加一.
+    - model_name默认为Question, 取值范围md_dc.
+    - field_name默认为view_times字段, 取值范围field_name_ls.
+
+    GET /api/index/AddTimes/?model_name=Law&id=3&field_name=view_times  # 指定id为3的Law对象, 其view_times字段加1
+    """
+    default_model_name = None  # 默认模型名
+    md_dc = None  # 可选择的模型名字典, 如{'Law': models.Law}
+    default_field_name = None  # 默认字段名
+    field_name_ls = None  # 可选择的字段范围, 如["view_times", "download_times"]等
+
+    delta = 1  # 默认加1
+
+    def get(self, request):
+        query_dc = request.GET
+        pk = query_dc.get('pk') or query_dc.get('id')
+        model_name = query_dc.get('model_name', self.default_model_name)
+        field_name = query_dc.get('field_name', self.default_field_name)
+
+        field_name_ls = self.field_name_ls
+        md_dc = self.md_dc
+        assert md_dc is not None, 'md_dc必须初始化!'
+        assert field_name_ls is not None, 'field_name_ls必须初始化!'
+
+        my_api_assert_function(field_name in field_name_ls, f'field_name 取值范围: {field_name_ls}')
+
+        md = md_dc.get(model_name)
+        my_api_assert_function(md, f'`model_name`参数取值范围: {list(md_dc.keys())}')
+        objs = md.objects.filter(pk=pk)
+        my_api_assert_function(objs.count(), f'未找到id={pk}!')
+        obj = objs[0]
+        times = getattr(obj, field_name)
+        if times is None:
+            times = 0
+        times_ = times + self.delta
+        setattr(obj, field_name, times_)
+        obj.save()
+        return APIResponse(None, msg=f"{model_name}__{field_name}: {times_}")
+
 

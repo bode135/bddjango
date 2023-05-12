@@ -11,68 +11,51 @@
 
 ## 更新信息
 
-### 2.8.1
-- 更改项目信息
-- 整合Readme.md文件
+# 3.0.0
+- 增加`BulkUpdateMixin`
+- 统计方法增加`loc_ls`字段
+- 精简项目结构
+- autocode兼容gbk格式csv等
+- 生成代码时使用render来返回html格式
 
-### 2.8.2
-- test
+# 3.0.1
+- `copy_to`增量上传的同名文件策略改为默认替换
+- `auto_wiki`, `auto_code`, `auto_model`界面优化
+- 增加`BaseOrmSearchModel`, 进行相关性检索
+- 增加前端控制`search_fields_conf`参数
+- order_by_order_type_ls对OrderByObject进行兼容
+- 在tools中增加`CsrfExemptSessionAuthentication`方法
+- migrate出错导致ContentType对应的base_model为None时, 自动删除对应的obj.
+- 修复auto_code的'<pk>'在html的<pre>标签中被转义的bug
+- tools中增加一个`fake_model.py`
+- 修复导出数据外键值为None时报错的bug
+- 文件下载类`DownloadFileMixin`
 
-# 2.8.3
-- 导入导出数据AdminMixin开放给前端
+# 3.0.2
+- 完善导入进度条显示条件, 加入参数`single_import_threshold`
+- `set_query_dc_value`增加支持`dict`类型
 
-# 2.8.4
-- 导入导出优化, `.save`改为`.create`
+# 3.0.3
+- 解决`statistic_dc`统计时`loc_ls`不在`df.index`而导致报错的bug
+- 待解决: `django.models.py`和`jieba`形成了依赖关系
+- set_query_dc_value出bug
+- `BaseListView`性能优化
+- 使用md5缓存, 优化`get_count`方法
+- 解决`jieba`的依赖关系
+- `ListStatisticMixin`的统计结果加上缓存时间`cache_expired_time__statistic_dc`
 
-# 2.8.5
-- 导入导出修复: 解决了数据库中str字段导入时被pandas解析为float的bug
+# 3.0.4
+- 导出的excel格式改为`xlsx`
+- 对`base_orm_search`进行调整, 以适应`union_search`
+- 时间格式兼容性优化, 兼容"2022-03-01"格式
+- 关键词统计Mixin: `tools.statistic_keywords_mixin.StatisticKeywordsMixin`
+- bddjango的bulk_list报错问题
+- 加入`BD_DEFAULT_EXPORT_FORMAT`参数, 可设置export的导出文件格式
+- BaseListView的run_list_filter, 注释`self.queryset = self.get_queryset()`
+- 移除对`xlrd==1.2.0`的依赖
 
-# 2.8.6
-- 修复导出文件时, 空文件报错的bug
-
-# 2.8.7
-- 修复导出文件时, 有FileField字段导致报错的bug
-- 可能还存在导出时有`None`没替换为空白的情况.
-
-# 2.8.8
-- 修复导入文件时, 有`DateField`时间格式字段解析失败的bug
-
-# 2.8.9
-- 日期时间字段导入优化
-
-# 2.9.1
-- `get_key_from_request_data_or_self_obj`支持字典
-- `convert_query_parameter_to_bool`的false增加['f', 'F', '__None__', ['__None__']]
-
-# 2.9.2
-- 解决get_key_from_request_data_or_self_obj有None时报错(get_list方法在dict时返回None)
-
-# 2.9.3
-- admin_list页面默认不再自动加一个link字段
-
-# 2.9.4
-- pg和sqlit3的兼容(如distinct问题, 写入数据时sqlite3不支持多线程的问题)
-- 增加功能`autoCode.py`
-
-# 2.9.5
-- `autoCode.py`只允许选中一条数据
-
-# 2.9.6
-- autoCode增加default_use_complete_model_view参数
-
-# 2.9.7
-- `autoCode.py`:
-    - 增加`auto_model`功能
-    - 注册`content_type`流程简化为`register_content_type_admin`
-- 增加`tools`文件夹
-- `__init__.py`增加`get_root_path`方法
-- `create_user_if_not_exist`方法优化, 将自动检测数据库是否正在`migrate`中
-
-
-
-
-
-
+# 3.0.5
+- 正式修改依赖项
 
 
 

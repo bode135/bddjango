@@ -3,8 +3,13 @@ from .pure import *
 
 
 def version():
-    v = "2.9.7"
+    v = "3.0.5"
     return v
+
+
+def get_root_path():
+    path = os.path.dirname(__file__)
+    return path
 
 
 try:
@@ -12,7 +17,3 @@ try:
 except Exception as e:
     warn('导入django失败? --- ' + str(e))
 
-
-def get_root_path():
-    path = os.path.dirname(__file__)
-    return path

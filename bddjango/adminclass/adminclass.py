@@ -29,11 +29,12 @@
 
 """
 
+
+# import xlrd
 import csv
 import datetime
 import threading
 import numpy as np
-import xlrd
 import os
 from openpyxl import Workbook
 from bdtime import Time
@@ -66,6 +67,9 @@ from ..django.utils import get_field_names_by_model
 import sys
 from django.http import JsonResponse
 from .admin_env_init import DATA_UPLOAD_MAX_NUMBER_FIELDS
+from django.views.decorators.csrf import csrf_exempt
+from bdtime import tt
+from .admin_env_init import BD_DEFAULT_EXPORT_FORMAT
 
 
 IAdmin = admin.ModelAdmin
@@ -75,6 +79,7 @@ if BD_USE_SIMPLEUI and BD_USE_AJAX_ADMIN:
     from simpleui.admin import AjaxAdmin
 
     IAdmin = AjaxAdmin
+
 
 if BD_USE_GUARDIAN:
     from guardian.admin import GuardedModelAdminMixin
@@ -226,10 +231,32 @@ class BulkDeleteMixin:
     bulk_delete.confirm = "确定要批量删除选中的数据么?"
 
 
+class BulkUpdateMixin:
+    """
+    批量更新
+    """
+
+    @admin.action(permissions=['change'])
+    def bulk_update(self, request, queryset=None, model=None):
+        t_update = Time()
+        count = queryset.count()
+        for qs_i in queryset:
+            qs_i.save()
+        self.message_user(request, f"成功更新{count}条数据, 耗时: {t_update.now(1)}秒.")
+
+    bulk_update.short_description = "批量更新"
+    bulk_update.icon = 'fa fa-spinner'
+    bulk_update.confirm = "确定要批量更新选中的数据么?"
+
+
 class ExportExcelMixin:
     export_ordering = None      # 导出时的排序
     export_fields = None        # 需要导出的字段
     extra_fields_dc = None      # 最后的verbose_name转换字典, 如: { 'ming_cheng': '哈哈哈名称' }
+
+    export_format = BD_DEFAULT_EXPORT_FORMAT      # 导出的后缀名, 可选["xls", "xlsx"], 也可在settings中用`BD_DEFAULT_EXPORT_FORMAT`设置
+
+    use_django_pandas_to_export_file_threshold = 5000  # 数据过多时则使用django-pandas生成csv临时文件, 然后返回文件流.
 
     export_asc = False      # 按id升序导出 --- 不怎么需要这个字段了
     add_index = False       # 导出时增加索引列
@@ -273,55 +300,80 @@ class ExportExcelMixin:
         if extra_fields_dc:
             conv_name_to_verbose_dc.update(extra_fields_dc)
 
-        response = HttpResponse(content_type='application/msexcel')
-        filename = urlquote(f"{meta.verbose_name}.xls")
-        response['Content-Disposition'] = f'attachment; filename={filename}'
-        wb = Workbook()
-        ws = wb.active
-
-        if self.export_asc:     # 不怎么需要这个字段了
-            queryset = queryset.order_by('pk')
-
-        ws.append(list(conv_name_to_verbose_dc.values()))
-
         total = queryset.count()
-        tq = tqdm(total=total)
-        for obj in queryset:
-            tq.update(1)
+        if total > self.use_django_pandas_to_export_file_threshold:
+            from django_pandas.io import read_frame
+            # qs = MyModel.objects.all()
+            df = read_frame(queryset, fieldnames=field_names)
 
-            data = []
-            for field_index in range(len(meta.fields)):
-                _meta_field = meta.fields[field_index]
-                field_name = _meta_field.name
-                if export_fields and field_name not in export_fields:
-                    continue
+            df.columns = [conv_name_to_verbose_dc.get(k) for k in df.columns]
+            df: pd.DataFrame
 
-                if isinstance(_meta_field, m.ForeignKey):
-                    # print('--- 外键: ', field_name, get_field_type_in_db(obj, field_name))
-                    to_field = _meta_field.to_fields[0]
-                    to_field = to_field if to_field else 'pk'
-                    field_value = getattr(obj, field_name)
-                    field_value = getattr(field_value, to_field)
-                else:
-                    field_value = getattr(obj, field_name)
+            temp_dir_path = os.path.join('media', 'protected_file', 'export_data')
+            os.makedirs(temp_dir_path, exist_ok=True)
+            download_file_name = f"{meta.verbose_name}.csv"
+            download_file_path = os.path.join(temp_dir_path, download_file_name)
+            # df.to_excel(download_file_path, index=False, encoding='utf-8')
+            df.to_csv(download_file_path, index=False, encoding='utf-8')
 
-                tp = get_field_type_in_py(obj, field_name)
-                if tp in ['int', 'float', 'bool']:
-                    data.append(field_value)
-                # if get_field_type_in_py(obj, field_name) == 'bool':
-                #     data.append(field_value)
-                elif tp == 'FileField':
-                    data.append(f'{field_value}')
-                else:
-                    data.append(f'{field_value}' if field_value else field_value)
+            from bddjango import DownloadFileMixin
+            response = DownloadFileMixin.download_by_file_path(download_file_path)
 
-            try:
-                ws.append(data)
-            except Exception as e:
-                print(data)
-                raise e
-        wb.save(response)
-        return response
+            # --- 清理临时文件
+            from bddjango.tools.remove_temp_file import remove_temp_file
+            remove_temp_file(temp_dir_path)
+
+            return response
+        else:
+            tq = tqdm(total=total)
+            response = HttpResponse(content_type='application/msexcel')
+            filename = urlquote(f"{meta.verbose_name}.{self.export_format}")
+            response['Content-Disposition'] = f'attachment; filename={filename}'
+            wb = Workbook()
+            ws = wb.active
+
+            if self.export_asc:     # 不怎么需要这个字段了
+                queryset = queryset.order_by('pk')
+
+            ws.append(list(conv_name_to_verbose_dc.values()))
+
+            for obj in queryset:
+                tq.update(1)
+
+                data = []
+                for field_index in range(len(meta.fields)):
+                    _meta_field = meta.fields[field_index]
+                    field_name = _meta_field.name
+                    if export_fields and field_name not in export_fields:
+                        continue
+
+                    if isinstance(_meta_field, m.ForeignKey):
+                        # print('--- 外键: ', field_name, get_field_type_in_db(obj, field_name))
+                        to_field = _meta_field.to_fields[0]
+                        to_field = to_field if to_field else 'pk'
+                        field_value = getattr(obj, field_name)
+                        if field_value:
+                            field_value = getattr(field_value, to_field)
+                    else:
+                        field_value = getattr(obj, field_name)
+
+                    tp = get_field_type_in_py(obj, field_name)
+                    if tp in ['int', 'float', 'bool']:
+                        data.append(field_value)
+                    # if get_field_type_in_py(obj, field_name) == 'bool':
+                    #     data.append(field_value)
+                    elif tp == 'FileField':
+                        data.append(f'{field_value}')
+                    else:
+                        data.append(f'{field_value}' if field_value else field_value)
+
+                try:
+                    ws.append(data)
+                except Exception as e:
+                    print(data)
+                    raise e
+            wb.save(response)
+            return response
 
     export_as_excel.short_description = "导出所选数据"
     # export_as_excel.acts_on_all = True
@@ -373,13 +425,21 @@ class ImportMixin:
     # raise_error_to_debug = True     # debug模式
     raise_error_to_debug = False     # debug模式
 
-    bulk_size = 50000       # 批处理数量
-    # bulk_size = 3000       # 批处理数量
+    single_import_threshold = 500  # 是否显示进度条的数据条数阈值
+
+    workers = 1  # 导入时启用的线程数
+    bulk_size = 100000       # 批处理数量, 已被workers取代
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.CHECK_EXIST_FLAG = False
         self.CREATE_EXIST_FLAG = False
+        self.COMPLETED_FLAG = False
+        self.save_tqdm_dc = {}
+        self.save_tqdm = None
+        self.check_tqdm = None
+
+        self.multi_threading_error_msg = []
 
     def import_csv(self, request):
         t_import = Time()
@@ -448,6 +508,9 @@ class ImportMixin:
                         encoding = 'gbk'
                         file_data = read_data.decode(encoding)
 
+                        # encoding = 'gb18030'
+                        # file_data = read_data.decode(encoding)
+
                     fname = f'f_{time_str}.csv'
                     fname = os.path.join(tempdir, fname)
 
@@ -457,12 +520,16 @@ class ImportMixin:
                     # 为解决字段内有逗号导致分割错误问题, 只能采用pd了
                     df = pd.read_csv(fname, encoding=encoding, dtype=dtype)
                 elif f_format == 'xls':
-                    wb = xlrd.open_workbook(file_contents=read_data)
-                    df = pd.read_excel(wb, dtype=dtype)
+                    # wb = xlrd.open_workbook(file_contents=read_data)
+                    # df = pd.read_excel(wb, dtype=dtype)
+
+                    df = pd.read_excel(read_data, dtype=dtype, engine='openpyxl', keep_default_na=False)
                 elif f_format == 'xlsx':
                     try:
-                        wb = xlrd.open_workbook(file_contents=read_data)
-                        df = pd.read_excel(wb, dtype=dtype)
+                        # wb = xlrd.open_workbook(file_contents=read_data)
+                        # df = pd.read_excel(wb, dtype=dtype, keep_default_na=False)
+
+                        df = pd.read_excel(read_data, dtype=dtype, engine='openpyxl', keep_default_na=False)
                     except Exception as e:
                         raise TypeError(f'文件读入错误! 可转换为`xls`格式后重试. msg: {e}')
                 else:
@@ -572,18 +639,24 @@ class ImportMixin:
                                     to_field = _meta_field.to_fields[0]
                                     to_field = to_field if to_field else 'pk'
                                     field_value = content_ls[i]
-                                    _obj_qs_ls = related_model.objects.filter(**{to_field: field_value})
-                                    assert _obj_qs_ls.exists(), f'第[{index + 2}]行外键[{verbose_i}]列找不到对应[{related_model._meta.verbose_name}_{to_field}={field_value}]的值!'
-                                    _obj = _obj_qs_ls[0]
-                                    content_ls[i] = _obj
+                                    if field_value is not None:
+                                        _obj_qs_ls = related_model.objects.filter(**{to_field: field_value})
+                                        if not _obj_qs_ls.exists():
+                                            if attr.field.db_constraint:
+                                                msg = f'第[{index + 2}]行外键[{verbose_i}]列找不到对应[{related_model._meta.verbose_name}_{to_field}={field_value}]的值!'
+                                                raise ReferenceError(msg)
+                                        _obj = _obj_qs_ls[0]
+                                        content_ls[i] = _obj
+                                    else:
+                                        content_ls[i] = None
+
                                 elif attr_field_name in ['DateField', 'DateTimeField']:
                                     if attr_field_name == 'DateTimeField':
                                         res = conv_date_time_field_str_format(ts=content_ls[i])
                                         content_ls[i] = res
                                     else:
                                         ts = content_ls[i]
-                                        res = conv_date_field_str_format(ts=ts) or conv_date_time_field_str_format(
-                                            ts=content_ls[i])
+                                        res = conv_date_field_str_format(ts=ts) or conv_date_time_field_str_format(ts=ts)
                                         if res:
                                             try:
                                                 if '.' in res:
@@ -598,14 +671,14 @@ class ImportMixin:
                                                 res = res_dt.strftime(common_date_time_formats.only_date)
                                             except Exception as e:
                                                 raise ValueError(
-                                                    f'字段[{title_i}]日期格式错误! 标准格式: [%Y-%m-%d]. error: {e}')
+                                                    f'第[{index + 2}]行, [{verbose_i}]列 - 日期格式错误! 标准格式: [%Y-%m-%d]. error: {e}')
                                         content_ls[i] = res
                                 elif title_type_i == 'int':
                                     try:
                                         if content_ls[i]:
                                             int(content_ls[i])
                                     except Exception as _:
-                                        raise TypeError(f'第[{index + 2}]行[{verbose_i}]无法转换为`整数`类型! 值为: [{content_ls[i]}]')
+                                        raise TypeError(f'第[{index + 2}]行[{verbose_i}]列 - 无法转换为`整数`类型! 值为: [{content_ls[i]}]')
                                 elif title_type_i == 'float':
                                     try:
                                         if content_ls[i]:
@@ -641,28 +714,28 @@ class ImportMixin:
                             raise e
 
                 n = df_rows
-                bulk_size = self.bulk_size
-                if n < bulk_size:
-                    check_df_format(self, df1, md_dc_ls, curr_id, start=0, end=df_rows, n=df_rows, tqdm_i=my_tqdm, info_dc=info_dc, q=None)
-                else:
-                    a = np.arange(n)
-                    s = slice(0, len(a), bulk_size)
-                    start_end_ls = list(a[s])
-                    thread_ls = []
-                    for start_end_i in start_end_ls:
-                        thread_i = threading.Thread(target=check_df_format,
-                                                    args=(self, df1, md_dc_ls, curr_id, start_end_i, start_end_i + bulk_size, df_rows, my_tqdm, info_dc, q))
-                        thread_ls.append(thread_i)
-                        thread_i.start()
 
-                    self.check_thread_ls(thread_ls, q, 'CHECK_EXIST_FLAG')
+                bulk_size = self.bulk_size
+                workers = self.workers if n > self.workers else 1
+                if workers:
+                    from math import ceil
+                    bulk_size = ceil(n // workers)
+
+                from ..django.conf import db_engine
+                use_sqlite3 = 'sqlite3' in db_engine        # sqlite3只允许单线程save, 但可以多线程check
+
+                single_import_flag = n <= self.single_import_threshold and (bulk_size and n <= bulk_size)      # 是否单线程导入
+                multi_single_import_flag = bulk_size and n <= bulk_size         # 是否先返回然后再开另一个线程处理数据
+
+                print(f'--- workers: {workers} --- bulk_size: {bulk_size}, single_import_flag: {single_import_flag}')
 
                 save_tqdm = tqdm(total=df_rows)
                 save_tqdm.desc = '写入数据库ing...'
-                print(f'*** df_rows: {df_rows} --- len(md_dc_ls): {len(md_dc_ls)}')
                 save_q = queue.Queue()
 
-                def save_md_dc_ls(md_dc_ls, start=0, end=None, n=None, tqdm_i=None, q=None):
+                def save_md_dc_ls(md_dc_ls, start=0, end=None, n=None, tqdm_i=None, q=None, pk_name=None):
+                    tt = Time()
+
                     n = len(md_dc_ls) if n is None else n
                     if not n:
                         return
@@ -671,52 +744,149 @@ class ImportMixin:
                         end = n
                     if end > n:
                         end = n
+
+                    i = start
+                    md_dc_i = {}
+
                     try:
                         for i in range(start, end):
+                            # print(start_end_i, start_end_i + bulk_size)
+                            # tt.sleep(0.1)
+
                             if self.CREATE_EXIST_FLAG:
                                 return
                             md_dc_i = md_dc_ls[i]
+
+                            # pk_value = -1
+                            # if pk_name not in md_dc_i and 'pk' not in md_dc_i:
+                            #     pk_value = start + i + 1
+                            #     # print(f'自定义pk!')
+                            #     md_dc_i.update({pk_name: pk_value})
+                            # print(f'~~~~~~', start, end, '~~~', i, pk_name, f' --- pk_value: {pk_value} --- md_dc_i: {md_dc_i}')
+
                             self.model.objects.create(**md_dc_i)  # `md_i.save()`不太好, 容易覆盖原有数据
                             if tqdm_i:
                                 tqdm_i.update(1)
                     except Exception as e:
+                        print(f'~~~~~~', start, end, '~~~', i, f'~~~ error: {e}', f'*** md_dc_i: {md_dc_i}')
                         if q is not None:
                             q.put(sys.exc_info())
                         else:
                             raise e
 
-                from ..django.conf import db_engine
-                use_sqlite3 = 'sqlite3' in db_engine
-                if n < bulk_size or use_sqlite3:
+                self.check_tqdm = my_tqdm
+                self.COMPLETED_FLAG = False
+                self.CHECK_EXIST_FLAG = False
+                self.CREATE_EXIST_FLAG = False
+                self.multi_threading_error_msg = []
+
+                if single_import_flag:
+                    check_df_format(self, df1, md_dc_ls, curr_id, start=0, end=df_rows, n=df_rows, tqdm_i=my_tqdm, info_dc=info_dc, q=None)
+
                     for i in range(len(md_dc_ls)):
                         md_dc_i = md_dc_ls[i]
                         save_tqdm.update(1)
-                        self.model.objects.create(**md_dc_i)                 # `md_i.save()`不太好, 容易覆盖原有数据
+                        self.model.objects.create(**md_dc_i)  # `md_i.save()`不太好, 容易覆盖原有数据
                     msg = f"{f_format}文件导入成功! 一共导入{df_rows}条数据, 耗时: {t_import.now(1)}秒."
+
+                    reset_db_sequence(self.model)
+                    # msg = f'成功导入{n}条数据!'
+                    self.message_user(request, msg)
+                    self.remove_temp_file(tempdir)
+
+                    return redirect("..")
                 else:
-                    a = np.arange(n)
-                    s = slice(0, len(a), bulk_size)
-                    start_end_ls = list(a[s])
-                    thread_ls = []
-                    for start_end_i in start_end_ls:
-                        thread_i = threading.Thread(target=save_md_dc_ls, args=(md_dc_ls, start_end_i, start_end_i + bulk_size, n, save_tqdm, save_q))
-                        thread_ls.append(thread_i)
-                        thread_i.start()
+                    # self.check_tqdm = my_tqdm
 
-                    # self.CREATE_EXIST_FLAG = False
-                    self.check_thread_ls(thread_ls, save_q, 'CREATE_EXIST_FLAG')
+                    def multi_threading_importer():
+                        if multi_single_import_flag:
+                            check_df_format(self, df1, md_dc_ls, curr_id, start=0, end=df_rows, n=df_rows, tqdm_i=my_tqdm,
+                                        info_dc=info_dc, q=None)
+                        else:
+                            a = np.arange(n)
+                            s = slice(0, len(a), bulk_size)
+                            start_end_ls = list(a[s])
+                            thread_ls = []
+                            for start_end_i in start_end_ls:
+                                thread_i = threading.Thread(target=check_df_format,
+                                                            args=(
+                                                            self, df1, md_dc_ls, start_end_i + curr_id, start_end_i,
+                                                            start_end_i + bulk_size, df_rows, my_tqdm, info_dc, q))
+                                thread_ls.append(thread_i)
+                                thread_i.start()
 
-                    # for thread_i in thread_ls:
-                    #     thread_i.join()
-                    msg = f"{f_format}文件导入中...<br>一共将导入{df_rows}条数据, <br>请稍后刷新查看是否完全导入."
+                            self.check_thread_ls(thread_ls, q, 'CHECK_EXIST_FLAG')
 
-                reset_db_sequence(self.model)
-                self.message_user(request, msg)
-                self.remove_temp_file(tempdir)
+                        self.check_tqdm = None
+                        self.save_tqdm = save_tqdm
 
-                return redirect("..")
+                        if multi_single_import_flag or use_sqlite3:
+                            for i in range(len(md_dc_ls)):
+                                if self.CREATE_EXIST_FLAG:
+                                    break
+
+                                md_dc_i = md_dc_ls[i]
+                                save_tqdm.update(1)
+                                self.model.objects.create(**md_dc_i)  # `md_i.save()`不太好, 容易覆盖原有数据
+                        else:
+                            # t_import.tqdm_sleep(f'=== 将使用{workers}个workers导入{n}条数据, 每个worker导入{bulk_size}条!')
+                            a = np.arange(n)
+                            s = slice(0, len(a), bulk_size)
+                            start_end_ls = list(a[s])
+                            thread_ls = []
+                            for start_end_i in start_end_ls:
+                                # print(start_end_i, start_end_i + bulk_size)
+                                thread_i = threading.Thread(target=save_md_dc_ls, args=(
+                                    md_dc_ls, start_end_i, start_end_i + bulk_size, n, save_tqdm, save_q, pk_name))
+                                thread_ls.append(thread_i)
+                                thread_i.start()
+
+                            self.check_thread_ls(thread_ls, save_q, 'CREATE_EXIST_FLAG')
+
+                        self.save_tqdm = None
+                        self.COMPLETED_FLAG = True
+
+                    thread_importer = threading.Thread(target=multi_threading_importer)
+                    thread_importer.start()
+
+                    meta = self.model._meta
+                    info = f'{self.model._meta.app_label}.{self.model._meta.object_name}'
+                    title = f'{self.model._meta.verbose_name}'
+
+                    href_str = f"/api/admin/{meta.app_label}/{meta.model_name}/get_import_info/?info={info}&title={title}"
+                    a_str = f'<a href="{href_str}" target="_blank">点击此处查看进度</a>'
+                    dst_number = df_rows + self.model.objects.count()
+
+                    w_str = f"将使用[{workers}]个线程" if workers > 1 else ""
+                    msg = f"[{meta.verbose_name}]的{f_format}文件导入中...<br>将{w_str}导入[{df_rows}]条数据, <br>请在导入完毕后查看是否为[{dst_number}]条数据. <br>{a_str}"
+                    self.message_user(request, msg)
+                    return redirect(href_str)
+
+                # if not use_progress_bar_flag:
+                #     reset_db_sequence(self.model)
+                #     self.message_user(request, msg)
+                #     self.remove_temp_file(tempdir)
+                #
+                #     return redirect("..")
+                # else:
+                #
+                #     meta = self.model._meta
+                #     info = f'{self.model._meta.app_label}.{self.model._meta.object_name}'
+                #
+                #     href_str = f"/api/admin/{meta.app_label}/{meta.model_name}/get_import_info/?info={info}"
+                #     a_str = f'<a href="{href_str}" target="_blank">点击此处查看进度</a>'
+                #     dst_number = df_rows + self.model.objects.count()
+                #     msg = f"{f_format}文件导入中...<br>一共将导入[{df_rows}]条数据, <br>请在导入完毕后查看是否为[{dst_number}]条数据. <br>{a_str}"
+                #     self.message_user(request, msg)
+                #     return redirect(href_str)
+
         except Exception as e:
             msg = f"数据导入失败!</br>错误信息：&nbsp;" + str(e)
+
+            self.multi_threading_error_msg.append(msg)
+            self.save_tqdm = None
+            self.check_tqdm = None
+            tt.tqdm_sleep(f'****** multi_threading_error_msg: {msg}')
 
             ret_restful_api = request._post.get('ret_restful_api')  # 是否返回RestfulAPI格式
 
@@ -744,6 +914,106 @@ class ImportMixin:
         payload = {"form": form}
         return render(request, "admin/csv_form.html", payload)
 
+    def _get_import_info(self, request):
+        # print(self.save_tqdm)
+        # from math import ceil
+
+        def get_data_from_tqdm(my_tqdm):
+            dc = my_tqdm.__dict__
+
+            n = dc.get('n')
+            total = dc.get('total')
+            desc = dc.get('desc')
+
+            tq_str = str(my_tqdm)
+            t_str = ""
+            reg = re.compile(r'\[.*\]')
+            match = reg.search(tq_str)
+            if match:
+                t_str = match.group(0)
+
+            # _progress = n * 100 / total
+            # progress = ceil(_progress) if _progress >= 98 else int(_progress)
+
+            progress = int(n * 100 / total)
+
+            ret = {
+                'desc': desc,
+                'n': n,
+                'total': total,
+                'progress': progress,
+                "t_str": t_str
+            }
+            return ret
+
+        tt = Time()
+        if len(self.multi_threading_error_msg):
+            error_msg = self.multi_threading_error_msg.pop(0)
+            return JsonResponse(
+                data={
+                    'status': 404,
+                    'msg': 'error',
+                    'result': error_msg
+                }
+            )
+
+        if self.save_tqdm is None and self.check_tqdm is None:
+            if self.COMPLETED_FLAG:
+                status = 201
+            else:
+                status = 204
+            return JsonResponse(
+                data={
+                    'status': status,
+                    'msg': f'{tt.get_current_beijing_time_str(decimal_places=1)} --- 当前没有正在导入的数据!',
+                    'result': None
+                }
+            )
+        else:
+
+            if self.check_tqdm is not None:
+                res = get_data_from_tqdm(self.check_tqdm)
+            else:
+                res = get_data_from_tqdm(self.save_tqdm)
+            return JsonResponse(
+                data={
+                    'status': 200,
+                    'msg': 'ok',
+                    'result': res
+                }
+            )
+
+    def get_import_info(self, request):
+        # from bddjango import APIResponse
+        # return APIResponse(111)
+
+        # payload = {}
+        # return render(request, "admin/import_progress_bar.html", payload)
+        # return 1
+
+        from django.http import FileResponse
+
+        from bddjango import get_root_path
+        bd_root = get_root_path()
+        bd_template_admin_dir = os.path.join(bd_root, "templates", "admin")
+        file_path = os.path.join(bd_template_admin_dir, 'import_progress_bar.html')
+        file = open('bddjango/templates/admin/import_progress_bar.html', 'rb')
+        response = FileResponse(file)
+        response['Content-Type'] = 'text/html'
+        return response
+
+    def stop_import(self, request):
+        self.CHECK_EXIST_FLAG = True
+        self.CREATE_EXIST_FLAG = True
+        self.COMPLETED_FLAG = True
+        return JsonResponse(
+            data={
+                'status': 200,
+                'msg': 'ok',
+                'result': None
+            }
+        )
+
     def check_thread_ls(self, thread_ls, q, flag_attr_name):
         from bdtime import tt
         while True:
@@ -764,8 +1034,16 @@ class ImportMixin:
                 setattr(self, flag_attr_name, True)
 
                 try:
-                    raise Exception(f'{last[-2]}' if len(last) >= 2 else f'{last[-1]}')
+                    msg = f'{last[-2]}' if len(last) >= 2 else f'{last[-1]}'
+                    self.multi_threading_error_msg.append(msg)
+                    self.save_tqdm = None
+                    self.check_tqdm = None
+                    raise Exception(msg)
                 except:
+                    msg = f'{last}'
+                    self.multi_threading_error_msg.append(msg)
+                    self.save_tqdm = None
+                    self.check_tqdm = None
                     raise Exception(last)
         print(u'end')
 
@@ -802,10 +1080,20 @@ class ImportMixin:
         return ret
 
     def get_urls(self):
+        from django.views.static import serve
+        from bddjango import get_root_path
+        bd_root = get_root_path()
+        bd_template_admin_dir = os.path.join(bd_root, "templates", "admin")
+
         my_urls = [
             path('import-csv/', self.import_csv),
             path('export_all_csv/', self.export_all_csv),
             path('export_all_excel/', self.export_all_excel),
+            # path('get_import_info/', self.get_import_info),
+            path('get_import_info/', serve, {'document_root': bd_template_admin_dir, 'path': 'import_progress_bar.html'}),
+            # path('get_import_info/', self.get_import_info),
+            path('_get_import_info/', self._get_import_info),
+            path('stop_import/', self.stop_import),
         ]
         return my_urls + super().get_urls()
 
@@ -977,7 +1265,7 @@ class ForceRunActionsAdmin(ListDisplayAdmin):
             if not request.POST.getlist(ACTION_CHECKBOX_NAME):
                 post = request.POST.copy()
                 for u in MyModel.objects.all():
-                    post.update({ACTION_CHECKBOX_NAME: str(u.id)})
+                    post.update({ACTION_CHECKBOX_NAME: str(u.pk)})
                 request._set_post(post)
         return super().changelist_view(request, extra_context)
 
@@ -998,7 +1286,7 @@ class PureAdmin(admin.ModelAdmin):
             if not request.POST.getlist(ACTION_CHECKBOX_NAME):
                 post = request.POST.copy()
                 for u in MyModel.objects.all():
-                    post.update({ACTION_CHECKBOX_NAME: str(u.id)})
+                    post.update({ACTION_CHECKBOX_NAME: str(u.pk)})
                 request._set_post(post)
         return super().changelist_view(request, extra_context)
 

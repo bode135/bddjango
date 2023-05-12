@@ -20,6 +20,14 @@ server {
     }
 
     location /api/ {
+
+        # 获取请求头中的cookie中csrftoken的值，赋值给X-CSRFToken；
+        set $CSRFTOKEN "";
+        if ($http_cookie ~* "CSRFTOKEN=(.+?)(?=;|$)") {
+            set $CSRFTOKEN "$1";
+        }
+        proxy_set_header X-CSRFToken $CSRFTOKEN;  # 设置X-CSRFToken
+
         client_max_body_size 120m;
         proxy_pass http://localhost:8000/api/;
     }

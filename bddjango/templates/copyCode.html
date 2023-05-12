@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Copy Code</title>
+
+  <!-- Include clipboard.js library -->
+  <script src="https://cdn.jsdelivr.net/npm/clipboard@2/dist/clipboard.min.js"></script>
+
+    <style>
+        body {
+            background-color: #f5f5f5;
+        }
+
+        .div-code {
+            background-color: lightgray;
+            display: inline-block;
+            border-radius: 10px 10px 10px 10px;
+        }
+        .div-code-bar {
+            border-width: 15px;
+            border-style: solid;
+            border-color: rgba(52,53,65, 0.8);
+            border-radius: 10px 10px 0px 0px;
+        }
+        .copy-button {
+            background-color: transparent;
+            color: white;
+            border:none;
+            display: flex;
+            margin-top: 5px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .copy-button-img {
+            padding-right: 5px;
+        }
+        .code-content {
+            {#padding: 5px;#}
+            padding-right: 40px;
+            padding-left: 10px;
+        }`
+    </style>
+</head>
+<body>
+  <div class="div-code" id="div-code-1">
+        <div class="div-code-bar" id="div-code-bar-1"></div>
+<pre id="code-1"  class="code-content">
+{{ article_content|safe }}
+</pre>
+
+
+      <button id="copy-button-1" class="copy-button">
+          <div class="copy-button-img">
+              <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+          </div>
+          <div class="copy-button-content">Copy</div>
+      </button>
+
+  </div>
+  <!-- Add copy functionality to button -->
+  <script>
+    function bind_code_to_button(my_id)
+    {
+        var button_id = "copy-button-" + my_id.toString();
+        var copyButton = document.getElementById(button_id);
+
+        var code_bar_id = "div-code-bar-" + my_id.toString();
+        var code_bar = document.getElementById(code_bar_id);
+
+        var code_id = "code-" + my_id.toString();
+        var code = document.getElementById(code_id);
+        var old_button_innerHTML = copyButton.innerHTML;
+
+        function isElementVisible(element) {
+            const rect = element.getBoundingClientRect();
+            return rect.top >= 0 && rect.left >= 0 && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+        }
+
+        function set_button_position()
+        {
+            const scrollTop = document.documentElement.scrollTop;
+            const scrollLeft = document.documentElement.scrollLeft;
+            console.log("scrollLeft --- ", scrollLeft, scrollLeft >= 10);
+
+            if (scrollTop <= 10 || scrollLeft >= 10)
+            {
+                const rect = code_bar.getBoundingClientRect();
+                copyButton.style.position="absolute";
+                var right_position = rect.right <= (window.innerWidth || document.documentElement.clientWidth)? rect.right: (window.innerWidth || document.documentElement.clientWidth);
+                {#copyButton.style.left = (rect.right - copyButton.offsetWidth - 15).toString() + 'px';#}
+                copyButton.style.left = (scrollLeft +　right_position - copyButton.offsetWidth - 25).toString() + 'px';
+                copyButton.style.top = (rect.top + 3).toString() + 'px';
+                copyButton.style.display = '';
+            }
+            else
+            {
+                copyButton.style.display = 'none';
+            }
+        }
+        set_button_position();
+
+        window.addEventListener('scroll', function() {
+            timeoutId = setTimeout(set_button_position, 100);
+        });
+
+        {#let timeoutId;#}
+
+        window.onresize = function(){
+            {#clearTimeout(timeoutId);#}
+            timeoutId = setTimeout(set_button_position, 100);
+        };
+
+        // Create a new ClipboardJS object
+        var clipboard = new ClipboardJS(copyButton, {
+          target: function() {
+            return code;
+          }
+        });
+
+        // Add a success message when the code is copied
+        clipboard.on("success", function(e) {
+          copyButton.textContent = "√ Copied!";
+          e.clearSelection();
+
+          setTimeout(function() {
+            copyButton.innerHTML = old_button_innerHTML;
+          }, 2000);
+
+        });
+    }
+
+    const my_id_ls = [1];
+    for (const my_id_i of my_id_ls) {
+         bind_code_to_button(my_id_i);
+    }
+  </script>
+</body>
+</html>

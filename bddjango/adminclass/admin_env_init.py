@@ -5,6 +5,11 @@ from ..pure import TEMPDIR
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
 
+BD_DEFAULT_EXPORT_FORMAT = 'xlsx'
+key = "BD_DEFAULT_EXPORT_FORMAT"
+if hasattr(settings, key):
+    BD_DEFAULT_EXPORT_FORMAT = getattr(settings, key)
+
 
 if not hasattr(settings, 'BD_USE_AJAX_ADMIN'):
     BD_USE_AJAX_ADMIN = True

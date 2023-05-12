@@ -14,13 +14,21 @@ def zipDir(dirpath, outFullName, remove_root_dir_path=None):
     :param remove_root_dir_path: 是否去掉目标根路径. 若为str, 则删除该根路径文件名, 若为1, 则删除所有根路径. 2则保留最后一层
     :return: 无
     """
+    if remove_root_dir_path is None:
+        # remove_root_dir_path = os.path.dirname(dirpath)
+        # src = '/opt/server/media/test/'
+        src = dirpath
+        if src.endswith('/'):
+            src = src[:-1]
+        if os.path.sep in src and src != '/':
+            remove_root_dir_path = os.path.dirname(src)
 
     if remove_root_dir_path is None:
         # 保留目标根路径
         with zipfile.ZipFile(outFullName, 'w') as target:
             for i in os.walk(dirpath):
                 for n in i[2]:
-                    target.write(''.join((i[0], '\\', n)))
+                    target.write(''.join((i[0], os.path.sep, n)))
 
     elif isinstance(remove_root_dir_path, str):
         with zipfile.ZipFile(outFullName, "w", zipfile.ZIP_DEFLATED) as zip:

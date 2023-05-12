@@ -1,6 +1,8 @@
 from bddjango import get_base_model
 from bddjango import get_base_queryset
-from pgZhSearch import search_conf_name
+# from bddjango import search_conf_name
+from bddjango.tools.base_orm_search import search_conf_name
+import json
 
 
 class BaseFullTextSearchMixin:
@@ -9,15 +11,18 @@ class BaseFullTextSearchMixin:
 
     - 启用全文检索: `search_keywords`
     """
-    relevant_obj_search_fields = ['A', 'B']     # 自动检索指定等级的字段
-    ret_original_data_if_not_exists = True      # 返回原始数据, 如果`search`的结果为空
     _name = 'BaseFullTextSearchView'
 
     def get_ordered_queryset(self):
         query_dc = self.get_request_data()
         keywords = query_dc.get('search_keywords')
         if keywords:
-            ret = self.queryset.search(keywords)
+            search_field_conf = query_dc.get('search_field_conf')  # json_str进行URI编码即可发送json格式数据
+            if search_field_conf == '':
+                search_field_conf = None
+            if search_field_conf:
+                search_field_conf = json.loads(search_field_conf)
+            ret = self.queryset.search(keywords, search_field_conf=search_field_conf)
         else:
             ret = super().get_ordered_queryset()
         return ret
@@ -44,17 +49,19 @@ class RelevantObjectRecommendationMixin(BaseFullTextSearchMixin):
         query_dc = self.get_request_data()
 
         if self.use_relevant_id_param and param_name in query_dc:
+
             relevant_id = query_dc.get(param_name)
             obj = get_base_queryset(ret).get(id=relevant_id)        # 这个得在全局检索
             ret = ret.exclude(id=relevant_id)
             qs_ls_0 = ret       # 万一没检索到相关结果, 就返回这个
             base_model = self.relevant_base_model if self.relevant_base_model else get_base_model(self.queryset)
             assert hasattr(base_model, search_conf_name), f'base_model[{base_model}]没有search_conf_name[{search_conf_name}]!'
+            search_conf = getattr(base_model, search_conf_name)
 
             relevant_obj_search_fields = self.relevant_obj_search_fields
             if relevant_obj_search_fields is None:
-                # 找出['A', 'B']等级的字段
-                relevant_obj_search_fields = [k for k, v in getattr(base_model, search_conf_name).items() if v in self.relevant_obj_search_levels]
+                assert search_conf, 'search_conf不能为空!'
+                relevant_obj_search_fields = list(search_conf.keys())
 
             search_keywords = None
             for sf in relevant_obj_search_fields:

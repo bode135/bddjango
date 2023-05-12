@@ -13,6 +13,7 @@ def remove_path(path, keep_external_folder=False):
     if os.path.isfile(path):
         os.remove(path)
     else:
+        assert path not in ['/'], '非法目标路径!'
         shutil.rmtree(path)
         if keep_external_folder:
             os.makedirs(path, exist_ok=True)
@@ -70,3 +71,5 @@ def remove_temp_file(tempdir, max_temps=100, remain_rows=0.33, keep_external_fol
             print(desc)
 
     return 1
+
+

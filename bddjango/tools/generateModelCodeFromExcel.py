@@ -99,7 +99,7 @@ def auto_generate_model_field_name(column_name):
     return ret
 
 
-def get_model_info(f_path=None, model_name=None, add_db_column=None, columns=None, rename_file_name=None):
+def get_model_info(f_path=None, model_name=None, add_db_column=None, columns=None, rename_file_name=None, ordering=None):
     """
     # 获取模型信息
 
@@ -117,8 +117,11 @@ def get_model_info(f_path=None, model_name=None, add_db_column=None, columns=Non
         if f_format != '.csv':
             df_0: pd.DataFrame = pd.read_excel(f_path)
         else:
-            df_0: pd.DataFrame = pd.read_csv(f_path)
-            # 删除Unnamed列
+            try:
+                df_0: pd.DataFrame = pd.read_csv(f_path)
+            except Exception as e:
+                df_0: pd.DataFrame = pd.read_csv(f_path, encoding='gbk')
+        # 删除Unnamed列
         df_0 = df_0.loc[:, ~df_0.columns.str.match('Unnamed')]
         columns = df_0.columns
     else:
@@ -128,6 +131,8 @@ def get_model_info(f_path=None, model_name=None, add_db_column=None, columns=Non
     assert columns is not None and f_path, 'columns, f_path都不能为空!'
     base_name = os.path.basename(f_path)
     file_name, file_format = os.path.splitext(base_name)
+
+    ordering = ordering if ordering else ['pk']
 
     file_name = rename_file_name if rename_file_name else file_name
 
@@ -143,7 +148,8 @@ def get_model_info(f_path=None, model_name=None, add_db_column=None, columns=Non
         if name in _tmp_name_ls:
             # 有时候重复, 例如`事件`和`时间`
             old_index = _tmp_name_ls.index(name)
-            warn(f'自动去重功能启动: name[{name}]重复! --- old: {name_dc_ls[old_index]}, new: {name}')
+            new_dc = {name: c}
+            warn(f'自动去重功能启动!\n--- old: {name_dc_ls[old_index]}, new: {new_dc}')
             name += f'_{_tmp_name_ls.count(name)}'
         else:
             _tmp_name_ls.append(name)
@@ -195,7 +201,7 @@ from django.db import models
 
 class {model_name}(models.Model):
     class Meta:
-        ordering = ['-pk']
+        ordering = {ordering}
         verbose_name_plural = verbose_name = '{model_verbose_name}'
 
     {field_codes}

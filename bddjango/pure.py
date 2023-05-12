@@ -31,6 +31,13 @@ def add_status_and_msg(dc_ls, status=200, msg=None):
     return ret
 
 
+def judge_hasattr_and_getattr(obj, attr_name):
+    ret = None
+    if hasattr(obj, attr_name) and getattr(obj, attr_name):
+        ret = getattr(obj, attr_name)
+    return ret
+
+
 def show_json(data: dict, sort_keys=False):
     try:
         print(json.dumps(data, sort_keys=sort_keys, indent=4, separators=(', ', ': '), ensure_ascii=False))
@@ -304,6 +311,21 @@ def find_indexes_in_dc_ls(dc_ls, key, value, find_all=False):
                 if not find_all:
                     break
     return indexes
+
+
+# --- 有的地方要用到这些
+from .tools.remove_path import remove_path
+from .tools.copy_to import copy_to
+from .tools.unzip_to import unzip_to
+
+
+import hashlib
+
+
+def zip_string_by_md5(ss, encoding="utf-8"):
+    assert isinstance(ss, str), "输入必须为str类型!"
+    ss = hashlib.md5(ss.encode(encoding)).hexdigest()
+    return ss
 
 
 

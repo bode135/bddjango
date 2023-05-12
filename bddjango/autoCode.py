@@ -9,7 +9,10 @@ from django.http import JsonResponse
 from django.contrib.contenttypes.models import ContentType
 from bddjango import convert_query_parameter_to_bool, my_api_assert_function
 from bddjango import find_indexes_in_dc_ls
+from bddjango import get_base_model
+from bddjango import get_field_names_by_model
 
+import sys
 
 tmp_urls = None
 tmp_views = None
@@ -34,7 +37,11 @@ my_apps = get_my_apps()
 def get_layer_for_app_and_views():
     auto_dc_ls = []
     for app_label in my_apps:
-        exec(f'global tmp_views; from {app_label} import views as tmp_views;')
+        try:
+            exec(f'global tmp_views; from {app_label} import views as tmp_views;')
+        except Exception as e:
+            print(f'****** 从app_label[{app_label}]导入views出错... error: {e}')
+            continue
 
         views = tmp_views
         func_ls = dir(views)
@@ -83,6 +90,8 @@ def set_options(ls):
         }
         options.append(dc)
     ContentTypeAdmin.auto_wiki.layer['params'][0]['options'] = options
+    if len(options) == 1:
+        ContentTypeAdmin.auto_wiki.layer['params'][0]['value'] = options[0].get('key')
 
 
 class ContentTypeAdmin(BaseAdmin):
@@ -95,11 +104,33 @@ class ContentTypeAdmin(BaseAdmin):
         - app_filter: app_label过滤器
     """
 
+    ordering = ['app_label', 'model']
     app_filter = my_apps
     app_exclude = []
 
+    list_display = get_field_names_by_model(ContentType) + ['get_object_name', 'get_model_verbose_name']
     list_filter = ['app_label']
     actions = ['auto_wiki', 'auto_code', 'auto_model']
+
+    def get_object_name(self, obj):
+        base_model = get_base_model(obj)
+        try:
+            ret = base_model._meta.object_name
+        except Exception as e:
+            ContentType.objects.get(id=obj.id).delete()
+            raise ModuleNotFoundError(f'没找到[{obj}]对应的base_model, 将删除obj! 请稍后刷新重试!')
+        return ret
+
+    get_object_name.short_description = '模型对象名'
+    get_object_name.allow_tags = True
+
+    def get_model_verbose_name(self, obj):
+        base_model = get_base_model(obj)
+        ret = base_model._meta.verbose_name
+        return ret
+
+    get_model_verbose_name.short_description = '模型别名'
+    get_model_verbose_name.allow_tags = True
 
     default_export_action = False
     custom_import_and_export_buttons = False  # 是否显示自定义的导入导出按钮
@@ -150,7 +181,11 @@ class ContentTypeAdmin(BaseAdmin):
         _view_class = post.get('view_class')
 
         if _view_class:
-            app_label, view_class = _view_class.split('.')
+            try:
+                app_label, view_class = _view_class.split('.')
+            except Exception as e:
+                print("Error _view_class: ", _view_class)
+                raise e
 
             from bddjango.autoWiki import AutoWiki
             from django.test.client import ASGIRequest, FakePayload
@@ -193,13 +228,16 @@ class ContentTypeAdmin(BaseAdmin):
 
             output_filename = f'wiki__{_view_class}.txt'
             output_filepath = os.path.join(output_dirpath, output_filename)
-            with open(output_filepath, 'w', encoding='utf-8') as f:
+            output_encoding = 'gbk' if sys.platform == 'win32' else 'utf-8'
+
+            with open(output_filepath, 'w', encoding=output_encoding) as f:
                 f.write(content)
 
             print('---------- autoWiki:')
             print(content)
 
-            msg = f'成功生成wiki, 耗时: {tt.now(2)}秒. <br> <a href="/api/{output_filepath}" target="_blank">点击此处查看</a>'
+            # msg = f'成功生成wiki, 耗时: {tt.now(2)}秒. <br> <a href="/api/{output_filepath}" target="_blank">点击此处查看</a>'
+            msg = f'成功生成wiki, 耗时: {tt.now(2)}秒. <br> <a href="/api/file_upload/Doc/?output_filepath={output_filepath}" target="_blank">点击此处查看</a>'
             self.message_user(request, msg)
 
             from bddjango import remove_temp_file
@@ -291,7 +329,6 @@ class ContentTypeAdmin(BaseAdmin):
         my_api_assert_function(os.path.exists(codes_template_file_path),
                                f'`codes_template_file_path`路径不存在![{codes_template_file_path}]')
 
-
         # region # --- 开始填充jinja模板
         from jinja2 import Template
 
@@ -313,7 +350,9 @@ class ContentTypeAdmin(BaseAdmin):
         if os.path.exists(output_fpath):
             os.remove(output_fpath)
 
-        _fields = get_field_names_by_model(md_i, exclude_fields=['id'])
+        _fields = get_field_names_by_model(md_i)
+        if len(_fields) > 2:
+            _fields.remove('id')
 
         field_dc_ls = []
         field_dc_i = {}
@@ -361,13 +400,15 @@ class ContentTypeAdmin(BaseAdmin):
 
         content = template.render(**res_context_dc)
 
-        with open(output_fpath, 'w', encoding='utf-8') as f:
+        output_encoding = 'gbk' if sys.platform == 'win32' else 'utf-8'
+        with open(output_fpath, 'w', encoding=output_encoding) as f:
             f.write(content)
 
         print('\n---------- autoCodes:')
         print(content)
 
-        msg = f'成功生成代码, 耗时: {tt.now(2)}秒. <br> <a href="/api/{output_fpath}" target="_blank">点击此处查看</a>'
+        # msg = f'成功生成代码, 耗时: {tt.now(2)}秒. <br> <a href="/api/{output_fpath}" target="_blank">点击此处查看</a>'
+        msg = f'成功生成wiki, 耗时: {tt.now(2)}秒. <br> <a href="/api/file_upload/Doc/?output_filepath={output_fpath}" target="_blank">点击此处查看</a>'
         self.message_user(request, msg)
 
         from bddjango import remove_temp_file
@@ -425,10 +466,12 @@ class ContentTypeAdmin(BaseAdmin):
     def auto_model(self, request, queryset):
         from bddjango.tools.generateModelCodeFromExcel import get_model_info
         import os
-        from bdtime import tt
+        from bdtime import Time
         import xlrd
         import pandas as pd
         from bddjango import convert_query_parameter_to_bool
+
+        tt = Time()
 
         format_ls = ['xls', 'xlsx', 'csv']
 
@@ -490,17 +533,24 @@ class ContentTypeAdmin(BaseAdmin):
         content = model_info.get('model_code')
         output_fname = model_info.get('model_name')
 
-        tempdir_rootpath = 'media/tempdir'  # 临时输出文件的根目录
+        tempdir_rootpath = os.path.join('media', 'tempdir')  # 临时输出文件的根目录
+
         output_dirpath = os.path.join(tempdir_rootpath, 'output')  # 临时输出文件的子目录
+        os.makedirs(output_dirpath, exist_ok=True)
+
+        # output_file_extension = ".txt"
+        output_file_extension = ".html"
         output_fpath = os.path.join(output_dirpath,
-                                    f'{output_fname}_{tt.get_current_beijing_time_str(tt.common_date_time_formats.ms_int)}.txt')
-        with open(output_fpath, 'w', encoding='utf-8') as f:
+                                    f'{output_fname}_{tt.get_current_beijing_time_str(tt.common_date_time_formats.ms_int)}{output_file_extension}')
+        output_encoding = 'gbk' if sys.platform == 'win32' else 'utf-8'
+        with open(output_fpath, 'w', encoding=output_encoding) as f:
             f.write(content)
 
         print('\n---------- auto_model:')
         print(content)
 
-        msg = f'成功生成模型代码, 耗时: {tt.now(2)}秒. <br> <a href="/api/{output_fpath}" target="_blank">点击此处查看</a>'
+        # msg = f'成功生成模型代码, 耗时: {tt.now(2)}秒. <br> <a href="/api/{output_fpath}" target="_blank">点击此处查看</a>'
+        msg = f'成功生成wiki, 耗时: {tt.now(2)}秒. <br> <a href="/api/file_upload/Doc/?output_filepath={output_fpath}" target="_blank">点击此处查看</a>'
         self.message_user(request, msg)
 
         from bddjango import remove_temp_file
@@ -534,11 +584,12 @@ class ContentTypeAdmin(BaseAdmin):
     }
 
 
-def register_content_type_admin(app_filter=None, app_exclude=None, list_filter=None,
+def register_content_type_admin(ordering=None, app_filter=None, app_exclude=None, list_filter=None,
                                 default_use_complete_model_view=None, add_db_column=None):
     """
     自动注册content_type_admin
 
+    :param ordering: 排序方式
     :param app_filter: app过滤列表
     :param app_exclude: app排除列表
     :param list_filter: 过滤字段
@@ -548,6 +599,8 @@ def register_content_type_admin(app_filter=None, app_exclude=None, list_filter=N
     --- eg:
     >>>　register_content_type_admin(default_use_complete_model_view=1, add_db_column=0)
     """
+    if ordering is not None:
+        ContentTypeAdmin.ordering = ordering
     if app_filter is not None:
         ContentTypeAdmin.app_filter = app_filter
     if app_exclude is not None:

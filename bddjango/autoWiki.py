@@ -85,6 +85,8 @@ class AutoWiki(APIView):
         """自动生成wiki文档"""
         res_context_dc = {}     # 将结果变量储存为文本字典, 好用`jinja2`来填写模板
 
+        e_str = None        # 返回错误信息
+
         ret = []
         request_data = request.GET
 
@@ -425,6 +427,9 @@ class AutoWiki(APIView):
             for field_name, verbose_name, can_be_empty, field_type in zip(field_names, verbose_names, can_be_empty_ls, field_type_ls):
                 print(field_name, verbose_name, can_be_empty)
 
+                if verbose_name == 'search_rank':
+                    verbose_name = "检索排序字段"
+
                 si = ''
                 if sf == '__all__' or field_name in sf:
                     # field_type = get_field_type_in_py(md, field_name)
@@ -492,7 +497,8 @@ class AutoWiki(APIView):
                                 findall_ls = reg.findall(introduction)
                                 # print(findall_ls)
                                 if findall_ls:
-                                    findall_i = findall_ls[0]
+                                    findall_i: str = findall_ls[0]
+                                    findall_i = re.sub(' *\n *', '', findall_i)
                                     findall_str = ""
                                     try:
                                         findall_str = json.dumps(json.loads(findall_i), sort_keys=False, indent=4, separators=(', ', ': '), ensure_ascii=False)
@@ -500,7 +506,6 @@ class AutoWiki(APIView):
                                         e_str = '****** POST请求携带的字典错误!' + str(e)
                                         from warnings import warn
                                         warn(e_str)
-                                        # raise ValueError(e_str)
                                     m_i += '\n' + findall_str
                             _introduction_url.append(m_i)
                         introduction_url = '\n'.join(_introduction_url)
@@ -591,7 +596,11 @@ class AutoWiki(APIView):
         # endregion
 
         # output_file.close()
-        return APIResponse(ret, 200, 'ok')
+        if e_str:
+            msg = e_str
+        else:
+            msg = 'ok'
+        return APIResponse(ret, 200, msg)
 
 
 

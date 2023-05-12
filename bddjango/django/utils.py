@@ -3,8 +3,10 @@
 """
 
 from .. import pure
-
+import base64
 import math
+from math import ceil
+
 import pandas as pd
 
 from django.core.paginator import Paginator
@@ -44,7 +46,9 @@ from django.db import models as m
 from django.db import connection
 from copy import deepcopy
 from .conf import db_engine
-# from rest_framework import serializers
+import numpy as np
+from django.core.cache import cache
+from ..pure import zip_string_by_md5
 
 
 def get_list(query_dc, key):
@@ -98,7 +102,11 @@ def get_key_from_request_data_or_self_obj(request_data, self_obj, key, get_type=
 
 
 def set_query_dc_value(query_dc: (QueryDict, dict), new_dc: dict):
-    assert isinstance(query_dc, QueryDict), 'query_dc必须是QueryDict类型!'
+    assert isinstance(query_dc, (dict, QueryDict)), 'query_dc必须是`QueryDict`或`dict`类型!'
+    if not hasattr(query_dc, "_mutable"):
+        query_dc.update(new_dc)
+        return query_dc
+
     query_dc._mutable = True
     for key, value in new_dc.items():
         ls = value if isinstance(value, (tuple, list)) else [value]
@@ -253,6 +261,12 @@ def conv_queryset_ls_to_serialzer_ls(qs_ls: list):
     return dc_ls
 
 
+def conv_qs_ls_to_serializer_data(qs_ls):
+    base_serializer = get_base_serializer(qs_ls)
+    dc_ls = base_serializer(qs_ls, many=True).data
+    return dc_ls
+
+
 def get_field_type_in_db(model, field_name):
     """根据模型和字段名, 获取这个字段在数据库中对应的类型"""
     tp = model._meta.get_field(field_name).get_internal_type()
@@ -390,13 +404,12 @@ def conv_to_queryset(obj) -> QuerySet:
     return ret
 
 
-def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16, context=None):
+def _paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16, context=None):
     """
     * 手动分页函数
 
     - 指定模型的queryset_ls和serializer, 然后按给定的page和per_page参数获取分页后的数据
     """
-
     page_size = int(per_page)
 
     if page_size == 0:
@@ -428,6 +441,107 @@ def paginate_qsls_to_dcls(qsls, serializer, page: int, per_page=16, context=None
             raise Exception(f'--- paginate_qsls_to_dcls错误!!! 2022/2/25, error: {e}')
     else:
         dc_ls = serializer(page_obj, many=True, context=context).data
+
+    return dc_ls, page_dc
+
+
+def get_md5_query_for_qs_ls(qs_ls, header=""):
+    """
+    根据一个`qs_ls`, 获取其`query`对应的md5摘要
+    """
+    _qs_ls = qs_ls.order_by().values("pk")
+    _query = f"{header}{_qs_ls.query}"
+    query = zip_string_by_md5(_query)
+    return query
+
+
+def get_count(qs_ls, expired_time=None):
+    """
+    获取指定qs_ls.query的count
+    :param qs_ls: 查询集
+    :param expired_time: 缓存过期时间, None则不使用缓存
+    :return:
+    """
+    if expired_time is None:
+        return qs_ls.count()
+
+    query = get_md5_query_for_qs_ls(qs_ls, header="count__")
+
+    count = cache.get(query)
+    if count is None:
+        count = qs_ls.count()
+
+    if expired_time:
+        cache.set(query, count, expired_time)
+
+    # print(f"--- count: {count}, query: [{query}]")
+    # print(f"~~~ _query: [{_query}]")
+
+    return count
+
+
+def paginate_qsls_to_dcls(qs_ls, serializer, page: int, per_page=16, context=None, cache_expired_time=0, get_page_dc=True):
+    """
+    性能优化分页器
+
+    :param qs_ls: queryset查询集
+    :param serializer: 序列化器
+    :param page: 页码
+    :param per_page: 每页数量
+    :param context: 上下文
+    :param cache_expired_time: `get_count`的缓存时间
+    :param get_page_dc: 是否获取page_dc
+    :return: 分页后的数据dc_ls
+    """
+
+    page_size = int(per_page)
+
+    count_items = get_count(qs_ls, expired_time=cache_expired_time)
+    total_pages = ceil(count_items / page_size)
+
+    # if get_page_dc:      # 性能问题
+    #     count_items = get_count(qs_ls, expired_time=cache_expired_time)
+    #     total_pages = ceil(count_items / page_size)
+    # else:
+    #     count_items = 0
+    #     total_pages = None
+
+    if page_size == 0:
+        page_dc = {
+            "count_items": count_items,
+            "total_pages": None,
+            "page_size": page_size,
+            "p": int(page)
+        }
+        return [], page_dc
+
+    p = int(page)
+    page_dc = {
+        "count_items": count_items,
+        "total_pages": total_pages,
+        # "num_pages": total_pages,
+        "page_size": page_size,
+        "p": p
+    }
+    # print(page_dc)
+
+    start_i = (p - 1) * page_size
+    start_i = 0 if start_i < 0 else start_i
+    end_i = p * page_size
+    end_i = count_items if end_i > count_items else end_i
+    page_obj = qs_ls[start_i: end_i]
+
+    context = {} if not context else context  # 避免序列化报错
+
+    # --- 处理单个Model和多个Model的情况
+    if serializer.__class__.__name__ == 'function':
+        try:
+            dc_ls = serializer(page_obj, context=context)
+        except Exception as e:
+            raise Exception(f'*** paginate_qsls_to_dcls错误! error: {e}')
+    else:
+        dc_ls = serializer(page_obj, many=True, context=context).data
+
     return dc_ls, page_dc
 
 
@@ -468,12 +582,15 @@ def order_by_order_type_ls(queryset, order_type_ls) -> QuerySet:
     else:
         ls = []
         for order_type in order_type_ls:
-            if order_type:
-                if order_type.startswith('-'):
-                    order_type1 = order_type[1:]
-                    ls.append(F(order_type1).desc(nulls_last=True))
-                else:
-                    ls.append(F(order_type).asc(nulls_first=True))
+            ls.append(order_type)
+            # if isinstance(order_type, str):
+            #     if order_type.startswith('-'):
+            #         order_type1 = order_type[1:]
+            #         ls.append(F(order_type1).desc(nulls_last=True))     # 这个`nulls_last`之类操作极大影响性能!
+            #     else:
+            #         ls.append(F(order_type).asc(nulls_first=True))
+            # else:
+            #     ls.append(order_type)
         ret = queryset.order_by(*ls)
     return ret
 
@@ -774,91 +891,213 @@ def judge_db_is_migrating():
         return False
 
 
-def get_total_occurrence_times_by_keywords(total_qs_ls, search_field_ls, keywords, get_frequence=False):
+def get_total_occurrence_times_by_keywords(total_qs_ls, search_field_ls=None, keywords=None, get_frequence=True, topK=5, rank_field_name=None, rank__gte=None, search_weight_ls=None, search_conf=None):
     """
-    统计keywords在qs_ls的search_field_ls中是否出现
+    # 关键词次数统计
+    - 统计keywords在qs_ls的search_field_ls中是否出现, 以及出现次数.
+    - 可以出现次数作为相关性排序依据
 
     :param total_qs_ls: 用来统计的queryset
     :param search_field_ls: 要匹配的字段
-    :param kw: 用来检索的关键词
-    :param get_frequence: 是否精确计算kw在字段中出现的次数
-    :return: queryset, 且annotate出现次数, 存在`total_occurrence_times`字段中
+    :param search_weight_ls: 字段对应权重
+    :param search_conf: 检索配置
+    :param keywords: 用来检索的关键词
+    :param get_frequence: 是否精确计算`keywords`在字段中出现的次数
+    :param topK: 提取关键词的个数
+    :param rank_field_name: annotate出来的排序字段名, 默认`searh_rank`
+    :param rank__gte: 出现次数过滤的最小阈值
+    :return: queryset, 且annotate出现次数, 存在`rank_field_name`字段中
     """
+    from django.db import models as m
     from django.db.models import functions
 
-    my_api_assert_function(isinstance(keywords, list), 'keywords的类型必须为list!')
+    assert keywords is not None, '`search_keywords`不能为空!'
+
+    if search_conf:
+        search_field_ls = list(search_conf.keys())
+        search_weight_ls = list(search_conf.values())
+
+    rank_field_name = rank_field_name if rank_field_name else 'search_rank'
+    rank__gte = rank__gte if rank__gte is not None else 0.00001
+
+    if isinstance(keywords, str):
+        from bddjango.tools.extract_keyword import extract_keywords
+        keywords = extract_keywords.handle(keywords, cut_all=False, topK=topK)
+        # print('--- extract_keywords:', keywords)
+
+    assert isinstance(keywords, list), 'keywords的类型必须为str或list!'
+
     search_dc = {}
-    occurrence_times_ls = []
+    occurance_times_ls = []
 
     for k in range(len(keywords)):
+        # k = 1
         kw = keywords[k]
         kw_l = len(kw)
         for sf_i in search_field_ls:
             if get_frequence:
-                k_name = f'k{k}_{sf_i}_occurrence_times'
+                k_name = f'k{k}_in_{sf_i}'
+
+                # 统计每个`keyword`的出现次数
                 dc = {
                     k_name: (functions.Length(sf_i) - functions.Length(
-                        functions.Replace(sf_i, m.Value(kw), m.Value('')))) / kw_l  # 出现次数
+                        functions.Replace(sf_i, m.Value(kw), m.Value('')))) / kw_l
                 }
             else:
                 k_name = f'k{k}_in_{sf_i}'
                 dc = {
-                    k_name: m.Exists(total_qs_ls.filter(id=m.OuterRef('id')).filter(**{f'{sf_i}__contains': kw})),   # 判断是否在title中
+                    k_name: m.Exists(total_qs_ls.filter(pk=m.OuterRef('pk')).filter(**{f'{sf_i}__contains': kw})),   # 判断是否在title中
                 }
-            occurrence_times_ls.append(k_name)
+            occurance_times_ls.append(k_name)
             search_dc.update(dc)
-    res_qs_ls: m.QuerySet = total_qs_ls.annotate(**search_dc)
+    res_qs_ls = total_qs_ls.annotate(**search_dc)
+
+    # from bddjango import show_json, show_ls
     # show_ls(res_qs_ls.values(*(['id'] + search_field_ls + list(search_dc.keys())))[:3])
+    # print(f'--- 检索字段: {search_field_ls}')
+    # show_ls(res_qs_ls.values(*(['id'] + list(search_dc.keys())))[:3])
 
     f_ls = 0
-    for i in occurrence_times_ls:
+    for i in range(len(occurance_times_ls)):
+        # i = 1
+        k_name = occurance_times_ls[i]
+
+        if search_weight_ls:
+            assert len(search_weight_ls) == len(search_field_ls), '`search_weight_ls`和`search_field_ls`长度不一致!'
+            keyword_i = k_name.split('_in_')[-1]
+            _i = search_field_ls.index(keyword_i)
+            weight_i = search_weight_ls[_i]
+            _then = m.F(k_name) * weight_i if get_frequence else m.Value(weight_i)
+        else:
+            _then = m.F(k_name) if get_frequence else m.Value(1)
+
         if get_frequence:
-            f_ls += F(i)
+            # f_ls += m.F(i)
+            f_ls += m.Case(
+                m.When(**{f'{k_name}__isnull': False}, then=_then),
+                default=m.Value(0),
+                output_field=m.FloatField()
+            )
         else:
             f_ls += m.Case(
-                m.When(**{i: True}, then=m.Value(1)),
+                m.When(**{k_name: True}, then=_then),
                 default=0,
-                output_field=m.IntegerField()
+                output_field=m.FloatField()
             )
 
-    res_qs_ls = res_qs_ls.annotate(**{'total_occurrence_times': f_ls})
-    ret = res_qs_ls
+    ret_qs_ls = res_qs_ls.annotate(**{rank_field_name: f_ls})
+    ret_qs_ls = ret_qs_ls.filter(**{f'{rank_field_name}__gte': rank__gte})
+    ret_qs_ls = ret_qs_ls.order_by(*[f'-{rank_field_name}', 'pk'])
+    ret = ret_qs_ls
     return ret
 
 
-def get_statistic_fields_result(queryset, statistic_fields, statistic_size=5, descend=True):
+def get_statistic_fields_result(queryset, statistic_fields, statistic_size=5, descend=1, order_config_dc_ls=None):
     """
     # 统计字段 fields 的值各出现了几次
     - statistic_fields 为迭代型时(如[name, id]), 只统计第一个字段, 然后将第二个字段用filter补上一个值
+    - descend: {0: `counts`顺序, 1:`counts`倒叙, 2: `self`顺序, 3: `self`倒叙}
     """
+    from bddjango import conv_queryset_to_dc_ls
+    from bddjango import conv_df_to_serializer_data
 
     assert isinstance(statistic_fields, list), 'statistic_fields必须为list类型!'
     statistic_size = int(statistic_size)
 
-    if descend:
-        ordering = ['-counts']
-    else:
+    # if descend:
+    #     ordering = ['-counts']
+    # else:
+    #     ordering = ['counts']
+
+    if descend == 0:
         ordering = ['counts']
+    elif descend == 1:
+        ordering = ['-counts']
+    elif descend == 2:  # self顺序
+        ordering = descend
+    elif descend == 3:  # self倒序
+        ordering = descend
+    else:
+        raise ValueError('ordering必须在[0, 3]之间, 取值: {0: `counts`顺序, 1:`counts`倒叙, 2: `self`顺序, 3: `self`倒叙}')
+
+    order_df = None
+    if order_config_dc_ls:
+        _order_config_dc_i = {
+            'name': None,
+            'ordering': None,
+            'pop_name_ls': None,
+            'loc_ls': None,
+        }
+        order_config_dc_ls.insert(0, _order_config_dc_i)
+        order_df = pd.DataFrame(order_config_dc_ls)
+        order_df = order_df.set_index('name')
+        # Drop rows with a NaN index
+        order_df = order_df.drop(order_df.index[order_df.index.isna()])
 
     statistic_dc = {}
     for field in statistic_fields:
         # break
         if isinstance(field, (tuple, list)):
-            # field_qsv = queryset.values(*field)
             field_qsv = queryset.values(field[0])
             dc_name = field[0]
         else:
             field_qsv = queryset.values(field)
             dc_name = field
-        statistic_qsv = field_qsv.annotate(counts=m.Count('pk')).order_by(*ordering)
+
+        if not isinstance(ordering, list):
+            assert ordering in [2, 3], 'descend为2, 则按自身顺序排序, 为3则按自身倒序排序'
+            ordering = dc_name if ordering == 2 else f'-{dc_name}'
+            ordering = [ordering]
+
+        if order_df is not None and dc_name in order_df.index:
+            _ordering = order_df.loc[dc_name][0]
+            _ordering = [_ordering] if isinstance(_ordering, str) else _ordering
+            _ordering = ordering if isinstance(_ordering, float) and pd.isna(_ordering) else _ordering
+
+            pop_name_ls = order_df.loc[dc_name][1]
+            pop_name_ls = [pop_name_ls] if isinstance(pop_name_ls, str) else pop_name_ls
+            pop_name_ls = None if isinstance(pop_name_ls, float) and pd.isna(pop_name_ls) else pop_name_ls
+
+            loc_ls = order_df.loc[dc_name][2]
+            loc_ls = [loc_ls] if isinstance(loc_ls, str) else loc_ls
+            loc_ls = None if isinstance(loc_ls, float) and pd.isna(loc_ls) else loc_ls
+
+            if pop_name_ls:
+                from bddjango import set_utils
+                _pop_name_ls = set_utils.get_ls_a_sub_b(pop_name_ls, loc_ls)
+                if _pop_name_ls:
+                    field_qsv = field_qsv.exclude(**{f'{dc_name}__in': _pop_name_ls})
+            statistic_qsv = field_qsv.annotate(counts=m.Count('pk')).order_by(*_ordering)
+            if loc_ls:
+                dc_ls = conv_queryset_to_dc_ls(statistic_qsv)
+                df = pd.DataFrame(dc_ls)
+                key_series = df[dc_name]
+                new_df = pd.DataFrame([], columns=df.columns)
+                for loc_i in loc_ls:
+                    if loc_i in key_series.values:
+                        index = np.where(key_series == loc_i)[0][0]
+                        _v = df.iloc[index:index+1, :]
+                        new_df = new_df.append(df.iloc[index])
+                        new_df.index = list(range(len(new_df)))
+                    else:
+                        _v = pd.DataFrame([[loc_i, 0]], columns=df.columns)
+                        new_df = new_df.append(_v)
+
+                df = new_df
+                statistic_qsv = conv_df_to_serializer_data(df)
+        else:
+            statistic_qsv = field_qsv.annotate(counts=m.Count('pk')).order_by(*ordering)
+
         dc_ls = list(statistic_qsv[:statistic_size])
 
         for dc in dc_ls:
             if isinstance(field, (tuple, list)):
                 dc['name'] = dc.pop(field[0])
-                f_name = field[1]
-                f_value = queryset.filter(**{field[0]: dc['name']}).order_by(f_name).values(f_name)[0].get(f_name)
-                dc[f_name] = f_value
+                for f_name in field[1:]:
+                    # f_name = field[1]
+                    obj = queryset.filter(**{field[0]: dc['name']}).order_by(f_name).values(f_name)[0]
+                    f_value = obj.get(f_name)
+                    dc[f_name] = f_value
             else:
                 dc['name'] = dc.pop(field)
         dc = {

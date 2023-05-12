@@ -384,13 +384,12 @@
     });
 
     function selectAll() {
-        console.log('~~selectAll');
-
+        {#console.log('~~selectAll');#}
         _action.select_across = 1;
     }
 
     function unSelect() {
-        console.log('~~unSelect');
+        {#console.log('~~unSelect');#}
         _action.select_across = 0;
     }
 
@@ -497,6 +496,7 @@
     {#console.log('~~~ actions.html from bddjango!');#}
 
     // 解决simpleui显示错误bug的js脚本--丑陋版
+    var first_run = true;
     setInterval(function() {
         // 判断是否选中了checkbox
         if ($("#action-toggle").is(":checked")){
@@ -514,6 +514,19 @@
             $(".clear").hide();
             $(".all").hide();
             $(".question").hide();
+
+            {#if (first_run)#}
+            var original_text = $(".action-counter").text();
+            if (original_text.indexOf("总共") == -1)
+            {
+                $(".action-counter").text(original_text + " (总共{{ cl.result_count }}个)");
+
+{#                {% if cl.result_count != cl.result_list|length %}#}
+{#                    $(".action-counter").text($(".action-counter").text() + " (总共{{ cl.result_count }}个)");#}
+{#                {% endif %}#}
+                first_run = false;
+            }
+
         }
 
     }, 100);

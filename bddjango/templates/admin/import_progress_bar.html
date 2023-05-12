@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <script src="https://cdn.staticfile.org/vue/2.7.0/vue.min.js"></script>
+
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+</head>
+
+<body>
+  <div id="app">
+
+    <h2>
+      [{{title}}] 导入进度
+    </h2>
+
+    <div class="progress-div">
+      <span class="progress-desc">{{ desc }} : </span>
+      <span class="progress-value">{{ progress }}%</span>
+      <div class="progress-bar">
+        <div class=" progress-bar-inner" v-bind:style="{ width: progress + '%' }">_</div>
+      </div>
+      <span class="progress-span">{{ n }}/{{total}}</span>
+      <span class="progress-t_str">{{ t_str }}</span>
+    </div>
+
+    <button class="bd_button" v-on:click="go_back">
+      {{return_button_string}}
+    </button>
+
+    <button v-on:click="stopImport" class="bd_button">停止导入</button>
+
+    <h3>
+      {{ message }}
+    </h3>
+
+  </div>
+
+  <script>
+    var app = new Vue({
+      el: '#app',
+      data: {
+        isActive: false,
+        progress: 0,
+        message: '',
+        info: null,
+
+        n: 0,
+        total: 1,
+        desc: "---",
+        t_str: "",
+
+        completed: false,
+        stop: false,
+
+        is_going_back: false,
+        title: "标题",
+
+        // return_button_string: "<&nbsp;&nbsp;返回",
+        return_button_string: "<      返回",
+
+        reference_url: "",
+      },
+      created() {
+        let queryString = window.location.search;
+        var currentPath = window.location.pathname;
+
+        function dirname(filepath, is_dir = true) {
+
+          if (is_dir && filepath.charAt(filepath.length - 1) == "/") {  // path以"/"结尾时, 如果路径is_dir为true, 则取其父级目录
+            filepath = filepath.slice(0, -1);
+          }
+
+          var lastSlashIndex = filepath.lastIndexOf("/");
+          if (lastSlashIndex === -1) {
+            return ".";
+          } else if (lastSlashIndex === 0) {
+            return "/";
+          } else {
+            return filepath.slice(0, lastSlashIndex);
+          }
+        }
+
+        this.reference_url = dirname(currentPath);
+
+
+        // Get the parameters in the query string
+        let urlParams = new URLSearchParams(queryString);
+        this.info = urlParams.get("info")
+        this.title = urlParams.get("title")
+
+        this.onLoad();
+        setInterval(this.onLoad, 500);
+      },
+      methods: {
+        toggleActive: function () {
+          this.isActive = !this.isActive;
+        },
+
+        stopImport() {
+          let that = this;
+          axios
+            .get(this.reference_url + '/stop_import/')
+            .then(function (response) {
+              that.message = "已强制结束!";
+              that.stop = true;
+            })
+            .catch(function (error) { // 请求失败处理
+              console.log(error);
+              that.message = "网络出错了?"
+              that.stop = true;
+            });
+        },
+
+        go_back() {
+          window.location = this.reference_url;
+        },
+
+        onLoad() {
+          let that = this;
+
+          if (that.stop)
+            return;
+
+          if (that.completed) {
+            if (that.is_going_back == false) {
+              setTimeout(that.go_back, 1000);
+              that.is_going_back = true;
+            }
+            return;
+          }
+
+          axios
+            .get(this.reference_url + '/_get_import_info/')
+            .then(function (response) {
+              if (response.data.status == 404) {
+                that.message = "导入错误! 错误信息: " + response.data.result;
+                that.stop = true;
+              }
+
+              if (response.data.status == 201) {
+                that.message = "导入完毕!";
+                that.completed = true;
+                that.progress = 100;
+                that.n = that.total;
+                return;
+              }
+
+              if (response.data.status == 200) {
+
+                var result = response.data.result;
+
+                that.progress = result.progress;
+                that.n = result.n;
+                that.total = result.total;
+                that.desc = result.desc;
+                that.t_str = result.t_str;
+
+                if (that.progress > 100)
+                  that.progress = 100;
+              }
+
+              if (response.data.status == 204) {
+                if (that.n == 0)
+                  that.message = "没有检测到正在导入的进程!!"
+                else
+                  that.message = "导入完毕!"
+                that.completed = true;
+              }
+
+            })
+            .catch(function (error) { // 请求失败处理
+              console.log(error);
+              that.message = "网络出错了?";
+              that.stop = true;
+            });
+        }
+      }
+    });
+  </script>
+  <style>
+    .active {
+      background-color: blue;
+    }
+  </style>
+  <style>
+    .progress-div {
+      display: flex;
+      margin-top: 5%;
+      margin-bottom: 5%;
+    }
+
+    .progress-span {
+      margin-right: 1%;
+    }
+
+    .progress-desc {
+      margin-left: 5px;
+    }
+
+    .progress-bar {
+      width: 30%;
+      height: 20px;
+      background: #ddd;
+      border-radius: 5px;
+      overflow: hidden;
+      /* padding-left: 1%; */
+      /* padding-right: 3%; */
+      margin-left: 1%;
+      margin-right: 2%;
+    }
+
+    .progress-value {
+      margin-left: 2%;
+    }
+
+    .progress-bar-inner {
+      width: 0;
+      height: 100%;
+      background: #4caf50;
+      transition: width 0.3s ease;
+      border: #4caf50;
+    }
+
+    .stop_button {
+      margin-top: 10px;
+      /* height: 40px; */
+    }
+
+    .bd_button {
+      /* white-space: pre; */
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fff;
+      box-shadow: 0 -15px 20px -10px rgb(0 0 0 / 15%) inset;
+      cursor: pointer;
+      height: 24px;
+      line-height: 1;
+      padding: 4px 8px;
+      margin: 0;
+      color: #333;
+    }
+  </style>
+
+</body>
+
+</html>
