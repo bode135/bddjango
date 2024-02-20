@@ -57,6 +57,13 @@
 # 3.0.5
 - 正式修改依赖项
 
+# 3.0.6
+- pandas导入数据时, `how`和`thresh`不能共存的问题
 
+# 3.0.7
+- get_key_from_request_data_or_self_obj优化为False的条件
+
+# 3.0.8
+- 生成代码与xlrd解耦
 
 

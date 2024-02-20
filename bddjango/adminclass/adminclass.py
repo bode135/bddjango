@@ -30,7 +30,6 @@
 """
 
 
-# import xlrd
 import csv
 import datetime
 import threading
@@ -520,22 +519,17 @@ class ImportMixin:
                     # 为解决字段内有逗号导致分割错误问题, 只能采用pd了
                     df = pd.read_csv(fname, encoding=encoding, dtype=dtype)
                 elif f_format == 'xls':
-                    # wb = xlrd.open_workbook(file_contents=read_data)
-                    # df = pd.read_excel(wb, dtype=dtype)
-
                     df = pd.read_excel(read_data, dtype=dtype, engine='openpyxl', keep_default_na=False)
                 elif f_format == 'xlsx':
                     try:
-                        # wb = xlrd.open_workbook(file_contents=read_data)
-                        # df = pd.read_excel(wb, dtype=dtype, keep_default_na=False)
-
                         df = pd.read_excel(read_data, dtype=dtype, engine='openpyxl', keep_default_na=False)
                     except Exception as e:
                         raise TypeError(f'文件读入错误! 可转换为`xls`格式后重试. msg: {e}')
                 else:
                     raise TypeError(f'文件格式错误! 仅支持{format_ls}格式的文档.')
 
-                df = df.dropna(axis=0, how='all', thresh=None, subset=None, inplace=False)  # 只有全部为空才回被删除
+                # df = df.dropna(axis=0, how='all', thresh=None, subset=None, inplace=False)  # 只有全部为空才回被删除
+                df = df.dropna(axis=0, how='all', subset=None, inplace=False)  # 只有全部为空才回被删除
                 df_rows = df.shape[0]        # 一共多少行数据
                 assert df_rows <= DATA_UPLOAD_MAX_NUMBER_FIELDS, \
                     f'检测到{df_rows}条数据, 超过了最大上传数量{DATA_UPLOAD_MAX_NUMBER_FIELDS}条!'

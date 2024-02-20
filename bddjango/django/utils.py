@@ -92,7 +92,8 @@ def get_key_from_request_data_or_self_obj(request_data, self_obj, key, get_type=
     elif get_type == 'bool':
         value = query_dc.get(key)
         # ret_0 = getattr(self_obj, key) if hasattr(self_obj, key) else None
-        ret_1 = pure.convert_query_parameter_to_bool(value) if value else None
+        ret_1 = None if value is None else pure.convert_query_parameter_to_bool(value)
+        # ret_1 = pure.convert_query_parameter_to_bool(value) if value is not None else None
         ret = ret_1 if ret_1 is not None else ret_0
         return bool(ret)
     else:

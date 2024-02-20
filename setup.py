@@ -6,7 +6,7 @@ from m2r import parse_from_file
 
 dirname = 'bddjango'
 version = bddjango.version()
-# print("version ================ ", version)
+# print("bddjango version ================ ", version)
 
 
 # with open("PypiReadme.md", "r", encoding='utf-8') as fh:

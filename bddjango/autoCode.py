@@ -467,7 +467,6 @@ class ContentTypeAdmin(BaseAdmin):
         from bddjango.tools.generateModelCodeFromExcel import get_model_info
         import os
         from bdtime import Time
-        import xlrd
         import pandas as pd
         from bddjango import convert_query_parameter_to_bool
 
@@ -518,13 +517,11 @@ class ContentTypeAdmin(BaseAdmin):
             # # 为解决字段内有逗号导致分割错误问题, 只能采用pd了
             # df = pd.read_csv(fname, encoding=encoding)
         elif f_format == 'xls':
-            wb = xlrd.open_workbook(file_contents=file_contents)
-            df = pd.read_excel(wb)
+            df = pd.read_excel(file_contents, engine='openpyxl', keep_default_na=False)
             df.to_excel(f_path, index=False, encoding='utf-8')
         elif f_format == 'xlsx':
             try:
-                wb = xlrd.open_workbook(file_contents=file_contents)
-                df = pd.read_excel(wb)
+                df = pd.read_excel(file_contents, engine='openpyxl', keep_default_na=False)
                 df.to_excel(f_path, index=False, encoding='utf-8')
             except Exception as e:
                 raise TypeError(f'文件读入错误! 可转换为`xls`格式后重试. msg: {e}')

@@ -115,7 +115,7 @@ def get_model_info(f_path=None, model_name=None, add_db_column=None, columns=Non
 
         add_db_column = add_db_column if add_db_column else ADD_DB_COLUMN
         if f_format != '.csv':
-            df_0: pd.DataFrame = pd.read_excel(f_path)
+            df_0: pd.DataFrame = pd.read_excel(f_path, engine='openpyxl', keep_default_na=False)
         else:
             try:
                 df_0: pd.DataFrame = pd.read_csv(f_path)

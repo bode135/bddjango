@@ -3,7 +3,7 @@ from .pure import *
 
 
 def version():
-    v = "3.0.5"
+    v = "3.0.8"
     return v
 
 
