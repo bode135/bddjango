@@ -68,6 +68,8 @@
 
 # 3.0.9
 - 兼容高版本pandas, 解决read_excel中去掉了encoding参数导致代码出错的问题
+- 兼容4.2版本django和对应的drf, tools中增加version_monkey_patch
+
 
 
 

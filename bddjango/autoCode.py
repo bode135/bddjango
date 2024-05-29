@@ -13,7 +13,7 @@ from bddjango import get_base_model
 from bddjango import get_field_names_by_model
 
 import sys
-from .tools.save_excel import save_excel
+from .tools.version_monkey_patch.save_excel import save_excel
 
 
 tmp_urls = None

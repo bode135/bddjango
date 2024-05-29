@@ -141,3 +141,9 @@ dmypy.json
 # some shells have sensitive info
 cdmydocker.sh
 authinfo.*
+
+expect_conf.yaml
+my_scp.exe
+upload.bat
+
+

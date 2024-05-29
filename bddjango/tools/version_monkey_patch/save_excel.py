@@ -1,3 +1,6 @@
+"""
+对高版本pandas的to_excel方法进行兼容
+"""
 import inspect
 
 

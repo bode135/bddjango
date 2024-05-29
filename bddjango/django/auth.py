@@ -1,7 +1,6 @@
 from django.utils.encoding import force_str
 from rest_framework.utils.serializer_helpers import ReturnList, ReturnDict
 from rest_framework.exceptions import APIException, ErrorDetail, status
-from django.utils.translation import ugettext_lazy
 from rest_framework.authentication import BaseAuthentication
 from rest_framework import exceptions
 from rest_framework.authtoken.models import Token
@@ -108,7 +107,7 @@ class ExpiringTokenAuthentication(BaseAuthentication):
         try:
             token = auth.decode()
         except UnicodeError:
-            msg = ugettext_lazy("无效的Token， Token头不应包含无效字符")
+            msg = "无效的Token， Token头不应包含无效字符"
             raise exceptions.AuthenticationFailed(msg)
 
         return self.authenticate_credentials(token)

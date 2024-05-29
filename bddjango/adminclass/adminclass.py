@@ -42,6 +42,9 @@ from django.shortcuts import render, redirect, HttpResponse
 from django.urls import path
 from django.contrib import admin
 from django.contrib import messages
+
+# from urllib.parse import quote as urlquote
+# # django.utils.http.urlquote = quote
 from django.utils.http import urlquote
 
 from .. import reset_db_sequence
