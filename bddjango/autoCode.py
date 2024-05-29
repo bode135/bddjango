@@ -13,6 +13,8 @@ from bddjango import get_base_model
 from bddjango import get_field_names_by_model
 
 import sys
+from .tools.save_excel import save_excel
+
 
 tmp_urls = None
 tmp_views = None
@@ -516,13 +518,10 @@ class ContentTypeAdmin(BaseAdmin):
 
             # # 为解决字段内有逗号导致分割错误问题, 只能采用pd了
             # df = pd.read_csv(fname, encoding=encoding)
-        elif f_format == 'xls':
-            df = pd.read_excel(file_contents, engine='openpyxl', keep_default_na=False)
-            df.to_excel(f_path, index=False, encoding='utf-8')
-        elif f_format == 'xlsx':
+        elif f_format in ['xls', 'xlsx']:
             try:
                 df = pd.read_excel(file_contents, engine='openpyxl', keep_default_na=False)
-                df.to_excel(f_path, index=False, encoding='utf-8')
+                save_excel(df, f_path)
             except Exception as e:
                 raise TypeError(f'文件读入错误! 可转换为`xls`格式后重试. msg: {e}')
 
