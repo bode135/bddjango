@@ -1,1 +1,0 @@
-bddjango/PypiReadme.md

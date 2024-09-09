@@ -1,5 +1,21 @@
-wheel
-setuptools
-twine
-m2r
+Django>=3.2
+django-simpleui==2021.10.15
+djangorestframework==3.12.4
+bdtime
+bddjango
+django-cors-headers==3.10.0
+djangorestframework-jwt==1.11.0
+#psycopg2-binary==2.9.1
+requests==2.27.1
+chardet==3.0.2
+
+jinja2
+jieba
+psutil
+pypinyin
+xlwt==1.2.0
+openpyxl
+pandas
+
+
 
